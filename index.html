@@ -1,18 +1,82 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AR Dish Menu</title>
+
+  <!-- A-Frame library -->
   <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/aframe-ar@1.7.2/dist/aframe-ar.min.js"></script>
+  <!-- AR.js for marker-based AR -->
+  <script src="https://cdn.jsdelivr.net/npm/ar.js@4.2.0/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    body { margin:0; overflow:hidden; font-family: Arial, sans-serif; background: #f8f8f8; }
+    #ui {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      text-align: center;
+    }
+    #ui button {
+      padding: 12px 18px;
+      font-size: 16px;
+      border-radius: 8px;
+      border: none;
+      background: #ff5722;
+      color: white;
+      cursor: pointer;
+    }
+    #ui button:hover { background: #e64a19; }
+  </style>
 </head>
-<body style="margin: 0; overflow: hidden;">
-  <a-scene embedded arjs>
+<body>
+
+  <div id="ui">
+    <h2>View Dish in AR</h2>
+    <p>Point your camera at the marker below.</p>
+  </div>
+
+  <!-- AR Scene -->
+  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
+
+    <!-- Marker -->
     <a-marker preset="hiro">
-      <a-entity 
-        gltf-model="your-model.glb"
-        scale="0.5 0.5 0.5">
+
+      <!-- GLB Model (Android & general browsers) -->
+      <a-entity id="dish-glb"
+                gltf-model="your-model.glb"
+                scale="0.5 0.5 0.5"
+                rotation="0 180 0"
+                position="0 0 0">
       </a-entity>
+
     </a-marker>
+
+    <!-- Camera -->
     <a-entity camera></a-entity>
   </a-scene>
+
+  <!-- iPhone USDZ fallback -->
+  <script>
+    // Detect iPhone
+    const isIPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    if (isIPhone) {
+      // Hide A-Frame scene and show Quick Look button
+      document.querySelector('a-scene').style.display = 'none';
+
+      const uiDiv = document.getElementById('ui');
+      const button = document.createElement('button');
+      button.textContent = "View Dish in AR (iPhone)";
+      button.onclick = () => {
+        window.location.href = "your-model.usdz"; // Your USDZ model
+      };
+      uiDiv.appendChild(button);
+    }
+  </script>
+
 </body>
 </html>
