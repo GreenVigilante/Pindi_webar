@@ -36,7 +36,7 @@ if (isIOS) {
   button.onclick = () => {
     const link = document.createElement("a");
     link.setAttribute("rel", "ar");
-    link.setAttribute("href", "model.usdz");
+    link.setAttribute("href", "your-model.usdz");
     link.setAttribute("style", "display:none");
     document.body.appendChild(link);
     link.click();
@@ -101,7 +101,7 @@ if (isIOS) {
     // Load GLB model
     const loader = new GLTFLoader();
     loader.load(
-      "model.glb",
+      "your-model.glb",
       (gltf) => {
         const model = gltf.scene;
 
@@ -153,3 +153,4 @@ if (isIOS) {
 
 </body>
 </html>
+
