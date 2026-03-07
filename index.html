@@ -1,48 +1,74 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-    
-    <style>
-      body { margin: 0; overflow: hidden; }
-      #ui { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; }
-      button { padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 25px; font-weight: bold; }
-    </style>
-  </head>
+<head>
+<meta charset="UTF-8">
 
-  <body>
-    <div id="ui">
-      <button onclick="placeModel()">TAP TO PLACE MODEL</button>
-    </div>
+<script type="module"
+src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js">
+</script>
 
-    <a-scene 
-      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind;" 
-      color-space="sRGB" 
-      renderer="colorManagement: true, physicallyCorrectLights" 
-      vr-mode-ui="enabled: false" 
-      device-orientation-permission-ui="enabled: false">
-      
-      <a-assets>
-        <a-asset-item id="myModel" src="https://raw.githubusercontent.com/GreenVigilante/Pindi_webar/main/your-model.glb"></a-asset-item>
-      </a-assets>
+<style>
+body{
+margin:0;
+background:#000;
+font-family:sans-serif;
+}
 
-      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+#menu{
+position:fixed;
+bottom:20px;
+left:50%;
+transform:translateX(-50%);
+display:flex;
+gap:10px;
+}
 
-      <a-entity id="target" mindar-image-target="targetIndex: 0">
-        <a-gltf-model src="#myModel" rotation="0 0 0" position="0 0 0" scale="0.5 0.5 0.5"></a-gltf-model>
-      </a-entity>
-    </a-scene>
+button{
+padding:10px 16px;
+font-size:16px;
+border:none;
+background:white;
+border-radius:8px;
+}
+</style>
+</head>
 
-    <script>
-      function placeModel() {
-        console.log("Model anchored to the world coord!");
-        // Logic to switch from 'Tracking' to 'Anchored' mode
-      }
-    </script>
-  </body>
+<body>
+
+<model-viewer
+id="viewer"
+src="burger.glb"
+ar
+ar-modes="webxr scene-viewer quick-look"
+camera-controls
+auto-rotate
+shadow-intensity="1"
+style="width:100vw;height:100vh;">
+</model-viewer>
+
+<div id="menu">
+
+<button onclick="changeDish('burger.glb')">
+Burger
+</button>
+
+<button onclick="changeDish('pizza.glb')">
+Pizza
+</button>
+
+<button onclick="changeDish('cake.glb')">
+Cake
+</button>
+
+</div>
+
+<script>
+
+function changeDish(model){
+document.getElementById("viewer").src=model;
+}
+
+</script>
+
+</body>
 </html>
-
-
-
