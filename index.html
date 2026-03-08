@@ -254,6 +254,7 @@ var prevGray=null, currGray=null, features=[], mapPoints=[];
 var placedModel=null, cumTx=0, cumTy=0, cumRot=0;
 var frameN=0, lastFpsT=0, fps=0, trackState='init', isRunning=false;
 var renderer3, scene3, camera3;
+var touchMoved=false, dragStart=null, pinchStart=0;
 
 // ─────────────────────────────────────────────────────────────────
 //  START AR
@@ -307,7 +308,10 @@ function initThree() {
   scene3.add(new THREE.AmbientLight(0xffffff,0.8));
   var sun=new THREE.DirectionalLight(0xffffff,1.5);sun.position.set(3,8,5);scene3.add(sun);
   var fill=new THREE.DirectionalLight(0x88ffee,0.4);fill.position.set(-4,-2,-4);scene3.add(fill);
-  cv.addEventListener('touchend',function(e){e.preventDefault();var t=e.changedTouches[0];placeAt(t.clientX,t.clientY);},{passive:false});
+  // Touch: tap=place, drag=rotate, pinch=scale
+  cv.addEventListener('touchstart',function(e){e.preventDefault();touchMoved=false;if(e.touches.length===1){dragStart={x:e.touches[0].clientX,y:e.touches[0].clientY};}else if(e.touches.length===2){pinchStart=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}},{passive:false});
+  cv.addEventListener('touchmove',function(e){e.preventDefault();touchMoved=true;if(!placedModel)return;if(e.touches.length===1&&dragStart){var dx=e.touches[0].clientX-dragStart.x;placedModel.userRot-=dx*0.012;dragStart={x:e.touches[0].clientX,y:e.touches[0].clientY};}else if(e.touches.length===2&&pinchStart>0){var d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);placedModel.scaleF=Math.max(0.05,Math.min(20,placedModel.scaleF*(d/pinchStart)));placedModel.wrap.scale.setScalar(placedModel.scaleF);document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';pinchStart=d;}},{passive:false});
+  cv.addEventListener('touchend',function(e){e.preventDefault();if(!touchMoved&&e.changedTouches.length===1)placeAt(e.changedTouches[0].clientX,e.changedTouches[0].clientY);},{passive:false});
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -354,18 +358,27 @@ function placeAt(sx,sy){
   if(trackState!=='tracking'||!loadedGLTF)return;
   if(placedModel)scene3.remove(placedModel.wrap);
   var inner=loadedGLTF.scene.clone(true);
+
+  // Scale so longest axis = 0.18m
   var box=new THREE.Box3().setFromObject(inner),sz=new THREE.Vector3();
-  box.getSize(sz);var maxDim=Math.max(sz.x,sz.y,sz.z)||1,sc=0.18/maxDim;
+  box.getSize(sz);
+  var maxDim=Math.max(sz.x,sz.y,sz.z)||1, sc=0.18/maxDim;
   inner.scale.setScalar(sc);
-  var ctr=new THREE.Vector3();box.getCenter(ctr);
-  inner.position.set(-ctr.x*sc,-ctr.y*sc,-ctr.z*sc);
-  var wrap=new THREE.Group();wrap.add(inner);
-  var ndcX=(sx/window.innerWidth)*2-1,ndcY=-((sy/window.innerHeight)*2-1);
+
+  // Bottom-align: shift model so its bottom sits at Y=0 of the wrap
+  // Model bottom in world units (after scale) = box.min.y * sc
+  // We want bottom at 0, so offset inner up by half-height
+  var halfH = (sz.y * sc) / 2;
+  var ctr=new THREE.Vector3(); box.getCenter(ctr);
+  inner.position.set(-ctr.x*sc, -ctr.y*sc + halfH, -ctr.z*sc);
+
+  var wrap=new THREE.Group(); wrap.add(inner);
+  var ndcX=(sx/window.innerWidth)*2-1, ndcY=-((sy/window.innerHeight)*2-1);
   var dir=new THREE.Vector3(ndcX,ndcY,-1).unproject(camera3).sub(camera3.position).normalize();
   wrap.position.copy(camera3.position.clone().addScaledVector(dir,1.4));
   wrap.rotation.y=cumRot*0.5;
   scene3.add(wrap);
-  placedModel={wrap:wrap,inner:inner,anchorTx:cumTx,anchorTy:cumTy,anchorRot:cumRot,basePos:wrap.position.clone(),baseRot:wrap.rotation.y,scaleF:1.0};
+  placedModel={wrap:wrap,inner:inner,anchorTx:cumTx,anchorTy:cumTy,anchorRot:cumRot,basePos:wrap.position.clone(),baseRot:wrap.rotation.y,scaleF:1.0,userRot:0};
   document.getElementById('place-btn').textContent='MOVE MODEL';
   document.getElementById('place-btn').classList.add('placed');
   document.getElementById('remove-btn').style.display='block';
@@ -374,12 +387,9 @@ function placeAt(sx,sy){
   var rip=document.createElement('div');rip.className='ripple';rip.style.cssText+='width:80px;height:80px;left:'+sx+'px;top:'+sy+'px;';document.body.appendChild(rip);setTimeout(function(){rip.remove();},700);
 }
 function updateModelPose(){
-  var g=placedModel.wrap,dTx=cumTx-placedModel.anchorTx,dTy=cumTy-placedModel.anchorTy,dRot=cumRot-placedModel.anchorRot;
-  var wpp=(2*1.4*Math.tan(camera3.fov*Math.PI/360))/window.innerHeight;
-  g.position.x=placedModel.basePos.x-dTx*wpp;
-  g.position.y=placedModel.basePos.y+dTy*wpp;
-  g.rotation.y=placedModel.baseRot-dRot*0.5;
-  placedModel.inner.rotation.y+=0.003;
+  // Model is fully stationary in world space.
+  // Only userRot (finger drag) changes its orientation.
+  placedModel.wrap.rotation.y = placedModel.baseRot + placedModel.userRot;
 }
 function scaleModel(f){if(!placedModel)return;placedModel.scaleF=Math.max(0.05,Math.min(20,placedModel.scaleF*f));placedModel.wrap.scale.setScalar(placedModel.scaleF);document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';}
 function resetModel(){if(!placedModel)return;scene3.remove(placedModel.wrap);placedModel=null;document.getElementById('place-btn').textContent='PLACE MODEL';document.getElementById('place-btn').classList.remove('placed');document.getElementById('remove-btn').style.display='none';document.getElementById('scale-bar').style.display='none';document.getElementById('s-scale').textContent='1.0×';if(trackState==='tracking')document.getElementById('hint').classList.add('on');}
