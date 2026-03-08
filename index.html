@@ -338,10 +338,11 @@ body::after {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════
-//  ▸ CONFIGURATION — change GLB_PATH to match your filename
+//  ▸ CONFIGURATION — set your GLB filename here
 // ════════════════════════════════════════════════════════════
-const GLB_PATH = './your-model.glb';   // ← rename to match your file
-//  e.g.  './scene.glb'  or  './robot.glb'
+const GLB_FILENAME = 'your-model.glb';  // ← just the filename, no path needed
+// Resolves correctly on GitHub Pages, Netlify, Vercel, any host
+const GLB_PATH = new URL(GLB_FILENAME, document.baseURI).href;
 // ════════════════════════════════════════════════════════════
 
 /* ── SLAM CONFIG ── */
@@ -394,8 +395,8 @@ function fetchGLB() {
     err => {
       console.error('GLB load error:', err);
       showSplashError(
-        'Could not load ' + GLB_PATH +
-        '\n\nMake sure your .glb file is in the same folder as this HTML and your server is running.'
+        'Could not load:\n' + GLB_PATH +
+        '\n\nCheck: filename matches exactly (case-sensitive)\nand GitHub Pages is enabled on your repo.'
       );
     }
   );
