@@ -332,9 +332,9 @@ body::after {
   </div>
 </div>
 
-<!-- Three.js + GLTFLoader loaded in guaranteed order -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<!-- Three.js + GLTFLoader — both from unpkg, same package, guaranteed compatible -->
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════
 //  ▸ CONFIGURATION — set your GLB filename here
