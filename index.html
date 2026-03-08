@@ -10,321 +10,102 @@
 <title>SLAM WebAR</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&display=swap');
-
-*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-html, body {
-  width:100%; height:100%; overflow:hidden;
-  background:#030a06; color:#aef0cc;
-  font-family:'Space Mono', monospace;
-  position:fixed; overscroll-behavior:none;
-  touch-action:none;
-}
-:root {
-  --g:#00ff88; --g2:#00ccff; --r:#ff2255;
-  --dark:#030a06; --panel:rgba(3,12,6,0.9);
-  --sat:env(safe-area-inset-top,0px);
-  --sab:env(safe-area-inset-bottom,0px);
-}
-
-/* ── CAMERA ── */
-#vid {
-  position:fixed; inset:0;
-  width:100%; height:100%;
-  object-fit:cover; z-index:1;
-  opacity:0; transition:opacity .5s;
-}
-#vid.on { opacity:1; }
-
-/* ── CANVASES ── */
-#cv-slam { position:fixed; inset:0; width:100%; height:100%; z-index:2; pointer-events:none; }
-#cv-hidden { display:none; }
-/* Three.js canvas → z-index:3 injected by JS */
-
-/* scanlines */
-body::after {
-  content:''; position:fixed; inset:0; z-index:9; pointer-events:none;
-  background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.05) 3px,rgba(0,0,0,.05) 4px);
-}
-
-/* ════════════════════
-   SPLASH / LAUNCH SCREEN
-   ════════════════════ */
-#splash {
-  position:fixed; inset:0; z-index:100;
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  padding:32px 24px;
-  background:radial-gradient(ellipse at 40% 40%, rgba(0,40,20,.97), rgba(3,10,6,1));
-}
-#splash h1 {
-  font-family:'Bebas Neue', sans-serif;
-  font-size:clamp(3rem,14vw,5rem);
-  letter-spacing:.08em; color:var(--g);
-  text-shadow:0 0 50px rgba(0,255,136,.5);
-  margin-bottom:6px; text-align:center;
-  line-height:1;
-}
-#splash h1 em { color:var(--g2); font-style:normal; }
-#splash .sub {
-  font-size:clamp(.52rem,.65rem,3vw); letter-spacing:.1em; opacity:.4;
-  margin-bottom:48px; line-height:2; text-align:center; max-width:260px;
-}
-
-/* loading state inside splash */
-#splash-status {
-  display:flex; flex-direction:column; align-items:center; gap:14px;
-  margin-bottom:36px;
-}
-#progress-track {
-  width:220px; height:2px;
-  background:rgba(0,255,136,.12);
-  border-radius:2px; overflow:hidden;
-}
-#progress-fill {
-  height:100%; width:0%; background:var(--g);
-  box-shadow:0 0 8px var(--g);
-  transition:width .3s ease;
-}
-#splash-msg {
-  font-size:.55rem; letter-spacing:.14em; color:var(--g); opacity:.7;
-}
-
-#launch-btn {
-  width:100%; max-width:280px;
-  padding:18px 0;
-  border:2px solid var(--g); background:transparent;
-  color:var(--g); font-family:'Bebas Neue', sans-serif;
-  font-size:1.6rem; letter-spacing:.15em;
-  cursor:pointer; border-radius:10px;
-  transition:all .25s; display:none;
-}
-#launch-btn:active { background:var(--g); color:var(--dark); }
-
-.tech {
-  position:absolute; bottom:calc(var(--sab) + 20px);
-  font-size:.42rem; opacity:.2; letter-spacing:.13em; line-height:2.4; text-align:center;
-}
-
-/* ════════════
-   TOP BAR
-   ════════════ */
-#top-bar {
-  position:fixed; top:0; left:0; right:0; z-index:20;
-  padding:calc(var(--sat) + 10px) 16px 10px;
-  display:none; align-items:center; justify-content:space-between;
-  background:linear-gradient(180deg, rgba(3,10,6,.85) 0%, transparent 100%);
-}
-#logo {
-  font-family:'Bebas Neue', sans-serif; font-size:1.3rem;
-  letter-spacing:.1em; color:var(--g);
-  text-shadow:0 0 16px rgba(0,255,136,.4);
-}
-#logo span { color:var(--g2); }
-
-#status-pill {
-  display:flex; align-items:center; gap:6px;
-  background:var(--panel); border:1px solid rgba(0,255,136,.2);
-  border-radius:20px; padding:5px 12px; backdrop-filter:blur(8px);
-}
-.dot { width:7px; height:7px; border-radius:50%; background:#555; flex-shrink:0; }
-.dot.init  { background:#ffaa00; animation:blink 1s infinite; }
-.dot.tracking { background:var(--g); box-shadow:0 0 8px var(--g); }
-.dot.lost  { background:var(--r); animation:blink .5s infinite; }
-@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.2;} }
-#status-lbl { font-size:.5rem; letter-spacing:.1em; opacity:.8; }
-
-/* ════════════
-   MINIMAP
-   ════════════ */
-#minimap-wrap {
-  position:fixed; top:calc(var(--sat) + 58px); left:14px;
-  z-index:20; display:none;
-}
-#minimap-title { font-size:.38rem; letter-spacing:.18em; color:var(--g2); margin-bottom:4px; }
-#minimap {
-  width:88px; height:70px; display:block;
-  background:rgba(0,8,4,.88); border:1px solid rgba(0,255,136,.18); border-radius:6px;
-}
-
-/* ════════════
-   SCALE BUTTONS
-   ════════════ */
-#scale-bar {
-  position:fixed; right:14px; top:50%; transform:translateY(-50%);
-  z-index:20; display:none; flex-direction:column; gap:10px;
-}
-.sc-btn {
-  width:48px; height:48px;
-  border:1px solid rgba(0,255,136,.3); background:var(--panel);
-  color:var(--g); font-size:1.3rem; cursor:pointer;
-  border-radius:12px; backdrop-filter:blur(6px);
-  display:flex; align-items:center; justify-content:center;
-  transition:all .15s;
-}
-.sc-btn:active { background:rgba(0,255,136,.2); border-color:var(--g); }
-
-/* ════════════
-   BOTTOM BAR
-   ════════════ */
-#bottom-bar {
-  position:fixed; bottom:0; left:0; right:0; z-index:20;
-  padding:10px 16px calc(var(--sab) + 12px);
-  display:none;
-  background:linear-gradient(0deg, rgba(3,10,6,.9) 0%, transparent 100%);
-}
-.stats-row { display:flex; gap:8px; margin-bottom:10px; }
-.stat-chip {
-  flex:1; background:var(--panel);
-  border:1px solid rgba(0,255,136,.18); border-radius:8px;
-  padding:7px 6px; backdrop-filter:blur(6px); text-align:center;
-}
-.sc-label { font-size:.37rem; letter-spacing:.16em; color:var(--g2); margin-bottom:3px; text-transform:uppercase; }
-.sc-val   { font-size:.62rem; color:var(--g); font-weight:700; }
-
-#action-row { display:flex; gap:8px; }
-#place-btn {
-  flex:3; padding:15px 0;
-  border:1.5px solid var(--g); background:rgba(0,255,136,.07);
-  color:var(--g); font-family:'Bebas Neue', sans-serif;
-  font-size:1.15rem; letter-spacing:.14em;
-  cursor:pointer; border-radius:10px; transition:all .2s;
-}
-#place-btn:active { background:rgba(0,255,136,.2); }
-#place-btn.placed { border-color:var(--g2); color:var(--g2); background:rgba(0,200,255,.07); }
-
-#remove-btn {
-  flex:1; padding:15px 0;
-  border:1px solid rgba(255,34,85,.3); background:rgba(255,34,85,.07);
-  color:var(--r); font-family:'Space Mono', monospace;
-  font-size:.6rem; cursor:pointer; border-radius:10px;
-  transition:all .2s; display:none;
-}
-#remove-btn:active { background:rgba(255,34,85,.2); }
-
-/* ════════════
-   HINT BUBBLE
-   ════════════ */
-#hint {
-  position:fixed; bottom:170px; left:50%; transform:translateX(-50%);
-  z-index:15; pointer-events:none; display:none;
-  background:rgba(0,255,136,.1); border:1px solid rgba(0,255,136,.3);
-  border-radius:20px; padding:8px 22px;
-  font-size:.52rem; letter-spacing:.12em; color:var(--g);
-  opacity:0; transition:opacity .5s; white-space:nowrap;
-  backdrop-filter:blur(6px);
-}
-#hint.on { opacity:1; }
-
-/* ════════════
-   TRACKING LOST
-   ════════════ */
-#lost-tint {
-  position:fixed; inset:0; z-index:8; pointer-events:none;
-  background:rgba(255,30,60,.07); opacity:0; transition:opacity .4s;
-}
-#lost-tint.on { opacity:1; }
-
-/* ripple */
-.ripple {
-  position:fixed; border-radius:50%; pointer-events:none; z-index:30;
-  background:rgba(0,255,136,.18); border:1.5px solid rgba(0,255,136,.5);
-  transform:translate(-50%,-50%) scale(0);
-  animation:rippleout .6s ease-out forwards;
-}
-@keyframes rippleout {
-  0%  { transform:translate(-50%,-50%) scale(0); opacity:1; }
-  100%{ transform:translate(-50%,-50%) scale(3); opacity:0; }
-}
-
-/* crosshair */
-#xhair {
-  position:fixed; top:50%; left:50%;
-  transform:translate(-50%,-50%);
-  z-index:15; pointer-events:none; display:none; opacity:.5;
-}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;overflow:hidden;background:#030a06;color:#aef0cc;font-family:'Space Mono',monospace;position:fixed;overscroll-behavior:none;touch-action:none;}
+:root{--g:#00ff88;--g2:#00ccff;--r:#ff2255;--dark:#030a06;--panel:rgba(3,12,6,0.9);--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);}
+#vid{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;opacity:0;transition:opacity .5s;}
+#vid.on{opacity:1;}
+#cv-slam{position:fixed;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;}
+#cv-hidden{display:none;}
+body::after{content:'';position:fixed;inset:0;z-index:9;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.05) 3px,rgba(0,0,0,.05) 4px);}
+#splash{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;background:radial-gradient(ellipse at 40% 40%,rgba(0,40,20,.97),rgba(3,10,6,1));}
+#splash h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(3rem,14vw,5rem);letter-spacing:.08em;color:var(--g);text-shadow:0 0 50px rgba(0,255,136,.5);margin-bottom:6px;text-align:center;line-height:1;}
+#splash h1 em{color:var(--g2);font-style:normal;}
+#splash .sub{font-size:clamp(.52rem,.65rem,3vw);letter-spacing:.1em;opacity:.4;margin-bottom:48px;line-height:2;text-align:center;max-width:260px;}
+#splash-status{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:36px;}
+#progress-track{width:220px;height:2px;background:rgba(0,255,136,.12);border-radius:2px;overflow:hidden;}
+#progress-fill{height:100%;width:0%;background:var(--g);box-shadow:0 0 8px var(--g);transition:width .3s ease;}
+#splash-msg{font-size:.55rem;letter-spacing:.14em;color:var(--g);opacity:.7;text-align:center;max-width:280px;line-height:1.8;white-space:pre-line;}
+#launch-btn{width:100%;max-width:280px;padding:18px 0;border:2px solid var(--g);background:transparent;color:var(--g);font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:.15em;cursor:pointer;border-radius:10px;transition:all .25s;display:none;}
+#launch-btn:active{background:var(--g);color:var(--dark);}
+.tech{position:absolute;bottom:calc(var(--sab) + 20px);font-size:.42rem;opacity:.2;letter-spacing:.13em;line-height:2.4;text-align:center;}
+#top-bar{position:fixed;top:0;left:0;right:0;z-index:20;padding:calc(var(--sat) + 10px) 16px 10px;display:none;align-items:center;justify-content:space-between;background:linear-gradient(180deg,rgba(3,10,6,.85) 0%,transparent 100%);}
+#logo{font-family:'Bebas Neue',sans-serif;font-size:1.3rem;letter-spacing:.1em;color:var(--g);text-shadow:0 0 16px rgba(0,255,136,.4);}
+#logo span{color:var(--g2);}
+#status-pill{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid rgba(0,255,136,.2);border-radius:20px;padding:5px 12px;backdrop-filter:blur(8px);}
+.dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0;}
+.dot.init{background:#ffaa00;animation:blink 1s infinite;}
+.dot.tracking{background:var(--g);box-shadow:0 0 8px var(--g);}
+.dot.lost{background:var(--r);animation:blink .5s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.2;}}
+#status-lbl{font-size:.5rem;letter-spacing:.1em;opacity:.8;}
+#minimap-wrap{position:fixed;top:calc(var(--sat) + 58px);left:14px;z-index:20;display:none;}
+#minimap-title{font-size:.38rem;letter-spacing:.18em;color:var(--g2);margin-bottom:4px;}
+#minimap{width:88px;height:70px;display:block;background:rgba(0,8,4,.88);border:1px solid rgba(0,255,136,.18);border-radius:6px;}
+#scale-bar{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:20;display:none;flex-direction:column;gap:10px;}
+.sc-btn{width:48px;height:48px;border:1px solid rgba(0,255,136,.3);background:var(--panel);color:var(--g);font-size:1.3rem;cursor:pointer;border-radius:12px;backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;transition:all .15s;}
+.sc-btn:active{background:rgba(0,255,136,.2);border-color:var(--g);}
+#bottom-bar{position:fixed;bottom:0;left:0;right:0;z-index:20;padding:10px 16px calc(var(--sab) + 12px);display:none;background:linear-gradient(0deg,rgba(3,10,6,.9) 0%,transparent 100%);}
+.stats-row{display:flex;gap:8px;margin-bottom:10px;}
+.stat-chip{flex:1;background:var(--panel);border:1px solid rgba(0,255,136,.18);border-radius:8px;padding:7px 6px;backdrop-filter:blur(6px);text-align:center;}
+.sc-label{font-size:.37rem;letter-spacing:.16em;color:var(--g2);margin-bottom:3px;text-transform:uppercase;}
+.sc-val{font-size:.62rem;color:var(--g);font-weight:700;}
+#action-row{display:flex;gap:8px;}
+#place-btn{flex:3;padding:15px 0;border:1.5px solid var(--g);background:rgba(0,255,136,.07);color:var(--g);font-family:'Bebas Neue',sans-serif;font-size:1.15rem;letter-spacing:.14em;cursor:pointer;border-radius:10px;transition:all .2s;}
+#place-btn:active{background:rgba(0,255,136,.2);}
+#place-btn.placed{border-color:var(--g2);color:var(--g2);background:rgba(0,200,255,.07);}
+#remove-btn{flex:1;padding:15px 0;border:1px solid rgba(255,34,85,.3);background:rgba(255,34,85,.07);color:var(--r);font-family:'Space Mono',monospace;font-size:.6rem;cursor:pointer;border-radius:10px;transition:all .2s;display:none;}
+#remove-btn:active{background:rgba(255,34,85,.2);}
+#hint{position:fixed;bottom:170px;left:50%;transform:translateX(-50%);z-index:15;pointer-events:none;display:none;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);border-radius:20px;padding:8px 22px;font-size:.52rem;letter-spacing:.12em;color:var(--g);opacity:0;transition:opacity .5s;white-space:nowrap;backdrop-filter:blur(6px);}
+#hint.on{opacity:1;}
+#lost-tint{position:fixed;inset:0;z-index:8;pointer-events:none;background:rgba(255,30,60,.07);opacity:0;transition:opacity .4s;}
+#lost-tint.on{opacity:1;}
+.ripple{position:fixed;border-radius:50%;pointer-events:none;z-index:30;background:rgba(0,255,136,.18);border:1.5px solid rgba(0,255,136,.5);transform:translate(-50%,-50%) scale(0);animation:rippleout .6s ease-out forwards;}
+@keyframes rippleout{0%{transform:translate(-50%,-50%) scale(0);opacity:1;}100%{transform:translate(-50%,-50%) scale(3);opacity:0;}}
+#xhair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:15;pointer-events:none;display:none;opacity:.5;}
 </style>
 </head>
 <body>
 
-<!-- ══════════════════════
-     SPLASH SCREEN
-     ══════════════════════ -->
 <div id="splash">
   <h1>SLAM<br><em>WebAR</em></h1>
   <p class="sub">Markerless mobile AR<br>No ARCore · No ARKit · No markers</p>
-
   <div id="splash-status">
     <div id="progress-track"><div id="progress-fill"></div></div>
-    <div id="splash-msg">LOADING MODEL…</div>
+    <div id="splash-msg">INITIALIZING…</div>
   </div>
-
-  <button id="launch-btn" ontouchend="startAR()" onclick="startAR()">
-    ▶ START AR
-  </button>
-
-  <div class="tech">
-    LUCAS-KANADE OPTICAL FLOW<br>
-    FAST-9 CORNER DETECTION<br>
-    THREE.JS · WEBRTC · PURE JS SLAM
-  </div>
+  <button id="launch-btn" ontouchend="startAR()" onclick="startAR()">▶ START AR</button>
+  <div class="tech">LUCAS-KANADE OPTICAL FLOW<br>FAST-9 CORNER DETECTION<br>THREE.JS ES MODULES · WEBRTC</div>
 </div>
 
-<!-- ══════════════════════
-     AR LAYERS
-     ══════════════════════ -->
 <video id="vid" autoplay playsinline muted></video>
 <canvas id="cv-hidden"></canvas>
 <canvas id="cv-slam"></canvas>
 <div id="lost-tint"></div>
 
-<!-- ══════════════════════
-     UI CHROME
-     ══════════════════════ -->
 <div id="top-bar">
   <div id="logo">SLAM·<span>AR</span></div>
-  <div id="status-pill">
-    <div class="dot init" id="dot"></div>
-    <span id="status-lbl">INIT</span>
-  </div>
+  <div id="status-pill"><div class="dot init" id="dot"></div><span id="status-lbl">INIT</span></div>
 </div>
-
-<div id="minimap-wrap">
-  <div id="minimap-title">MAP</div>
-  <canvas id="minimap"></canvas>
-</div>
-
+<div id="minimap-wrap"><div id="minimap-title">MAP</div><canvas id="minimap"></canvas></div>
 <div id="scale-bar">
   <button class="sc-btn" ontouchstart="scaleModel(1.15)" onclick="scaleModel(1.15)">+</button>
   <button class="sc-btn" ontouchstart="scaleModel(0.87)" onclick="scaleModel(0.87)">−</button>
 </div>
-
 <svg id="xhair" width="48" height="48" viewBox="0 0 48 48">
-  <line x1="24" y1="7"  x2="24" y2="19" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="24" y1="7" x2="24" y2="19" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
   <line x1="24" y1="29" x2="24" y2="41" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="7"  y1="24" x2="19" y2="24" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="7" y1="24" x2="19" y2="24" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
   <line x1="29" y1="24" x2="41" y2="24" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
   <circle cx="24" cy="24" r="5" fill="none" stroke="#00ff88" stroke-width="1" opacity=".7"/>
 </svg>
-
 <div id="hint">TAP SCREEN TO PLACE MODEL</div>
-
 <div id="bottom-bar">
   <div class="stats-row">
-    <div class="stat-chip">
-      <div class="sc-label">Features</div>
-      <div class="sc-val" id="s-feat">0</div>
-    </div>
-    <div class="stat-chip">
-      <div class="sc-label">Quality</div>
-      <div class="sc-val" id="s-qual">--</div>
-    </div>
-    <div class="stat-chip">
-      <div class="sc-label">FPS</div>
-      <div class="sc-val" id="s-fps">--</div>
-    </div>
-    <div class="stat-chip">
-      <div class="sc-label">Scale</div>
-      <div class="sc-val" id="s-scale">1.0×</div>
-    </div>
+    <div class="stat-chip"><div class="sc-label">Features</div><div class="sc-val" id="s-feat">0</div></div>
+    <div class="stat-chip"><div class="sc-label">Quality</div><div class="sc-val" id="s-qual">--</div></div>
+    <div class="stat-chip"><div class="sc-label">FPS</div><div class="sc-val" id="s-fps">--</div></div>
+    <div class="stat-chip"><div class="sc-label">Scale</div><div class="sc-val" id="s-scale">1.0×</div></div>
   </div>
   <div id="action-row">
     <button id="place-btn" ontouchend="onPlaceBtn()">PLACE MODEL</button>
@@ -332,102 +113,94 @@ body::after {
   </div>
 </div>
 
-<!-- Three.js + GLTFLoader — both from unpkg, same package, guaranteed compatible -->
-<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
-<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-<script>
-// ════════════════════════════════════════════════════════════
-//  ▸ CONFIGURATION — set your GLB filename here
-// ════════════════════════════════════════════════════════════
-const GLB_FILENAME = 'your-model.glb';  // ← just the filename, no path needed
-// Resolves correctly on GitHub Pages, Netlify, Vercel, any host
-const GLB_PATH = new URL(GLB_FILENAME, document.baseURI).href;
-// ════════════════════════════════════════════════════════════
+<!-- ES MODULE IMPORT — most reliable way, no CDN mismatch possible -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
+  }
+}
+</script>
 
-/* ── SLAM CONFIG ── */
-const CFG = {
-  maxFeat:100, minFeat:20,
-  winSize:13,  maxIter:16, eps:0.015,
-  minDist:14,  fastThr:20
-};
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-/* ── STATE ── */
-let vid, hidC, hidX, slamC, slamX, minimapC, minimapX;
-let prevGray=null, currGray=null;
-let features=[], mapPoints=[];
+// ═══════════════════════════════════════════════════
+//  GLB filename — must match file in same folder
+// ═══════════════════════════════════════════════════
+const GLB_PATH = new URL('your-model.glb', document.baseURI).href;
+
+// ── SLAM CONFIG ──
+const CFG = {maxFeat:100,minFeat:20,winSize:13,maxIter:16,eps:0.015,minDist:14,fastThr:20};
+
+// ── STATE ──
+let vid,hidC,hidX,slamC,slamX,minimapC,minimapX;
+let prevGray=null,currGray=null;
+let features=[],mapPoints=[];
 let placedModel=null;
-let cumTx=0, cumTy=0, cumRot=0;
-let frameN=0, lastFpsT=0, fps=0;
+let cumTx=0,cumTy=0,cumRot=0;
+let frameN=0,lastFpsT=0,fps=0;
 let trackState='init';
 let isRunning=false;
 let loadedGLTF=null;
+let renderer3,scene3,camera3;
 
-/* ── THREE.JS ── */
-let renderer3, scene3, camera3;
+// ── EXPOSE functions needed by inline onclick handlers ──
+window.startAR    = startAR;
+window.scaleModel = scaleModel;
+window.resetModel = resetModel;
+window.onPlaceBtn = onPlaceBtn;
 
-/* ════════════════════════════════════════════════════════════
-   STEP 1: Load GLB on page load — no user action needed
-   ════════════════════════════════════════════════════════════ */
-window.addEventListener('DOMContentLoaded', () => {
-  fetchGLB();
-});
+// ═══════════════════════════════════════════════════
+//  LOAD GLB immediately on module load
+// ═══════════════════════════════════════════════════
+setSplashMsg('LOADING MODEL…', 0);
 
-function fetchGLB() {
-  setSplashMsg('LOADING MODEL…', 0);
-  new THREE.GLTFLoader().load(
-    GLB_PATH,
-    gltf => {
-      loadedGLTF = gltf;
-      setSplashMsg('MODEL READY', 100);
-      document.getElementById('launch-btn').style.display = 'block';
-      document.getElementById('splash-status').style.opacity = '.5';
-    },
-    xhr => {
-      const pct = xhr.total ? Math.round(xhr.loaded / xhr.total * 100) : null;
-      setSplashMsg(pct !== null ? `LOADING  ${pct}%` : 'LOADING…', pct ?? 40);
-    },
-    err => {
-      console.error('GLB load error:', err);
-      showSplashError(
-        'Could not load:\n' + GLB_PATH +
-        '\n\nCheck: filename matches exactly (case-sensitive)\nand GitHub Pages is enabled on your repo.'
-      );
-    }
-  );
+const loader = new GLTFLoader();
+loader.load(
+  GLB_PATH,
+  gltf => {
+    loadedGLTF = gltf;
+    setSplashMsg('MODEL READY ✓', 100);
+    document.getElementById('launch-btn').style.display = 'block';
+    document.getElementById('splash-status').style.opacity = '.5';
+  },
+  xhr => {
+    const pct = xhr.total ? Math.round(xhr.loaded/xhr.total*100) : null;
+    setSplashMsg(pct !== null ? `LOADING ${pct}%` : 'LOADING…', pct ?? 40);
+  },
+  err => {
+    console.error('GLB error:', err);
+    setSplashMsg('❌ Could not load model.\n\nMake sure your-model.glb\nis in the same GitHub repo folder.', 100, true);
+  }
+);
+
+function setSplashMsg(msg, pct, isErr=false) {
+  const el = document.getElementById('splash-msg');
+  el.textContent = msg;
+  el.style.color = isErr ? '#ff2255' : '';
+  if (pct !== null) {
+    document.getElementById('progress-fill').style.width = pct+'%';
+    if (isErr) document.getElementById('progress-fill').style.background = '#ff2255';
+  }
 }
 
-function setSplashMsg(msg, pct) {
-  document.getElementById('splash-msg').textContent = msg;
-  if (pct !== null) document.getElementById('progress-fill').style.width = pct + '%';
-}
-
-function showSplashError(msg) {
-  document.getElementById('splash-msg').style.color = '#ff2255';
-  document.getElementById('splash-msg').textContent = msg;
-  document.getElementById('progress-fill').style.background = '#ff2255';
-  document.getElementById('progress-fill').style.width = '100%';
-}
-
-/* ════════════════════════════════════════════════════════════
-   STEP 2: User taps START AR → camera opens
-   ════════════════════════════════════════════════════════════ */
+// ═══════════════════════════════════════════════════
+//  START AR
+// ═══════════════════════════════════════════════════
 async function startAR() {
   if (!loadedGLTF) return;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video:{
-        facingMode:{ ideal:'environment' },
-        width:{ ideal:1920 }, height:{ ideal:1080 },
-        frameRate:{ ideal:30 }
-      },
+      video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},
       audio:false
     });
-
     vid = document.getElementById('vid');
     vid.srcObject = stream;
     await vid.play();
 
-    // Hide splash, show AR UI
     document.getElementById('splash').style.display = 'none';
     document.getElementById('top-bar').style.display = 'flex';
     document.getElementById('bottom-bar').style.display = 'block';
@@ -438,406 +211,152 @@ async function startAR() {
 
     initCanvases();
     initThree();
-
     isRunning = true;
     document.getElementById('hint').classList.add('on');
-    setStatus('tracking', 'TAP TO PLACE');
+    setStatus('tracking','TAP TO PLACE');
     requestAnimationFrame(mainLoop);
-
   } catch(e) {
-    alert(
-      'Camera error: ' + e.message +
-      '\n\nThis app needs HTTPS to access the camera on mobile.\nHost the files on a secure server.'
-    );
+    alert('Camera error: '+e.message+'\n\nNeeds HTTPS to access camera.');
   }
 }
 
-/* ════════════════════════════════════════════════════════════
-   CANVAS & THREE SETUP
-   ════════════════════════════════════════════════════════════ */
+// ═══════════════════════════════════════════════════
+//  CANVAS & THREE
+// ═══════════════════════════════════════════════════
 function initCanvases() {
-  hidC = document.getElementById('cv-hidden');
-  hidX = hidC.getContext('2d', {willReadFrequently:true});
-  slamC = document.getElementById('cv-slam');
-  slamX = slamC.getContext('2d');
-  minimapC = document.getElementById('minimap');
-  minimapX = minimapC.getContext('2d');
+  hidC=document.getElementById('cv-hidden');
+  hidX=hidC.getContext('2d',{willReadFrequently:true});
+  slamC=document.getElementById('cv-slam');
+  slamX=slamC.getContext('2d');
+  minimapC=document.getElementById('minimap');
+  minimapX=minimapC.getContext('2d');
   onResize();
-  window.addEventListener('resize', onResize);
-  screen.orientation?.addEventListener('change', onResize);
+  window.addEventListener('resize',onResize);
+  screen.orientation?.addEventListener('change',onResize);
 }
-
 function onResize() {
-  const W=window.innerWidth, H=window.innerHeight;
-  slamC.width=W; slamC.height=H;
-  hidC.width=Math.min(W,480); hidC.height=Math.min(H,270);
-  if (renderer3) {
-    renderer3.setSize(W,H);
-    camera3.aspect=W/H;
-    camera3.updateProjectionMatrix();
-  }
+  const W=window.innerWidth,H=window.innerHeight;
+  slamC.width=W;slamC.height=H;
+  hidC.width=Math.min(W,480);hidC.height=Math.min(H,270);
+  if(renderer3){renderer3.setSize(W,H);camera3.aspect=W/H;camera3.updateProjectionMatrix();}
 }
-
 function initThree() {
-  const W=window.innerWidth, H=window.innerHeight;
-
-  renderer3 = new THREE.WebGLRenderer({
-    alpha:true, antialias:false, powerPreference:'high-performance'
-  });
-  renderer3.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer3.setSize(W, H);
-  renderer3.setClearColor(0x000000, 0);
-
-  const cv = renderer3.domElement;
-  cv.style.cssText = 'position:fixed;inset:0;z-index:3;touch-action:none;';
+  const W=window.innerWidth,H=window.innerHeight;
+  renderer3=new THREE.WebGLRenderer({alpha:true,antialias:false,powerPreference:'high-performance'});
+  renderer3.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer3.setSize(W,H);
+  renderer3.setClearColor(0x000000,0);
+  const cv=renderer3.domElement;
+  cv.style.cssText='position:fixed;inset:0;z-index:3;touch-action:none;';
   document.body.appendChild(cv);
-
-  camera3 = new THREE.PerspectiveCamera(65, W/H, 0.001, 500);
+  camera3=new THREE.PerspectiveCamera(65,W/H,0.001,500);
   camera3.position.set(0,0,0);
-
-  scene3 = new THREE.Scene();
-  scene3.add(new THREE.AmbientLight(0xffffff, 0.8));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-  sun.position.set(3,8,5); scene3.add(sun);
-  scene3.add(Object.assign(new THREE.DirectionalLight(0x88ffee, 0.4),
-    {position: new THREE.Vector3(-4,-2,-4)}));
-
-  cv.addEventListener('touchend', e => {
-    e.preventDefault();
-    const t = e.changedTouches[0];
-    placeAt(t.clientX, t.clientY);
-  }, {passive:false});
+  scene3=new THREE.Scene();
+  scene3.add(new THREE.AmbientLight(0xffffff,0.8));
+  const sun=new THREE.DirectionalLight(0xffffff,1.5);
+  sun.position.set(3,8,5);scene3.add(sun);
+  const fill=new THREE.DirectionalLight(0x88ffee,0.4);
+  fill.position.set(-4,-2,-4);scene3.add(fill);
+  cv.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];placeAt(t.clientX,t.clientY);},{passive:false});
 }
 
-/* ════════════════════════════════════════════════════════════
-   MAIN LOOP
-   ════════════════════════════════════════════════════════════ */
+// ═══════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════
 function mainLoop(ts) {
-  if (!isRunning) return;
+  if(!isRunning)return;
   frameN++;
-  if (ts - lastFpsT > 1000) {
-    fps = Math.round(frameN*1000/(ts-lastFpsT));
-    frameN=0; lastFpsT=ts;
-    document.getElementById('s-fps').textContent = fps;
-  }
-
-  const W=hidC.width, H=hidC.height;
-  hidX.drawImage(vid, 0, 0, W, H);
-  currGray = toGray(hidX.getImageData(0,0,W,H).data, W, H);
-
-  if (!prevGray) {
-    prevGray=currGray; detectFeatures(W,H);
-    requestAnimationFrame(mainLoop); return;
-  }
-
-  features = trackLK(prevGray, currGray, features, W, H).filter(f=>f.ok);
-  const motion = estimateMotion(features);
-  cumTx += motion.dx; cumTy += motion.dy; cumRot += motion.drot;
-
-  if (placedModel) updateModelPose();
-
-  if (features.length < CFG.minFeat) {
-    detectFeatures(W,H);
-    setTrackState(features.length < 6 ? 'lost' : 'tracking');
-  } else { setTrackState('tracking'); }
-
-  feedMap(features, W, H);
-  renderSLAM(W, H);
+  if(ts-lastFpsT>1000){fps=Math.round(frameN*1000/(ts-lastFpsT));frameN=0;lastFpsT=ts;document.getElementById('s-fps').textContent=fps;}
+  const W=hidC.width,H=hidC.height;
+  hidX.drawImage(vid,0,0,W,H);
+  currGray=toGray(hidX.getImageData(0,0,W,H).data,W,H);
+  if(!prevGray){prevGray=currGray;detectFeatures(W,H);requestAnimationFrame(mainLoop);return;}
+  features=trackLK(prevGray,currGray,features,W,H).filter(f=>f.ok);
+  const motion=estimateMotion(features);
+  cumTx+=motion.dx;cumTy+=motion.dy;cumRot+=motion.drot;
+  if(placedModel)updateModelPose();
+  if(features.length<CFG.minFeat){detectFeatures(W,H);setTrackState(features.length<6?'lost':'tracking');}
+  else setTrackState('tracking');
+  feedMap(features,W,H);
+  renderSLAM(W,H);
   renderMinimap();
-  renderer3.render(scene3, camera3);
+  renderer3.render(scene3,camera3);
   updateHUD(motion);
-
-  prevGray = currGray;
+  prevGray=currGray;
   requestAnimationFrame(mainLoop);
 }
 
-/* ════════════════════════════════════════════════════════════
-   IMAGE PROCESSING
-   ════════════════════════════════════════════════════════════ */
-function toGray(d,w,h){
-  const g=new Float32Array(w*h);
-  for(let i=0;i<w*h;i++) g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];
-  return g;
-}
-
-const C16=[
-  [0,-3],[1,-3],[2,-2],[3,-1],[3,0],[3,1],[2,2],[1,3],
-  [0,3],[-1,3],[-2,2],[-3,1],[-3,0],[-3,-1],[-2,-2],[-1,-3]
-];
-
+// ═══════════════════════════════════════════════════
+//  IMAGE PROCESSING
+// ═══════════════════════════════════════════════════
+function toGray(d,w,h){const g=new Float32Array(w*h);for(let i=0;i<w*h;i++)g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];return g;}
+const C16=[[0,-3],[1,-3],[2,-2],[3,-1],[3,0],[3,1],[2,2],[1,3],[0,3],[-1,3],[-2,2],[-3,1],[-3,0],[-3,-1],[-2,-2],[-1,-3]];
 function detectFeatures(W,H){
   const cands=[];
-  for(let y=18;y<H-18;y+=3) for(let x=18;x<W-18;x+=3){
-    const p=currGray[y*W+x]; let br=0,dk=0;
-    for(const [dx,dy] of C16){
-      const q=currGray[(y+dy)*W+(x+dx)]||0;
-      if(q>p+CFG.fastThr) br++; else if(q<p-CFG.fastThr) dk++;
-    }
-    if(br>=9||dk>=9) cands.push({x,y,score:harrisSc(x,y,W,H),vx:0,vy:0,age:0,ok:true});
+  for(let y=18;y<H-18;y+=3)for(let x=18;x<W-18;x+=3){
+    const p=currGray[y*W+x];let br=0,dk=0;
+    for(const[dx,dy]of C16){const q=currGray[(y+dy)*W+(x+dx)]||0;if(q>p+CFG.fastThr)br++;else if(q<p-CFG.fastThr)dk++;}
+    if(br>=9||dk>=9)cands.push({x,y,score:harrisSc(x,y,W,H),vx:0,vy:0,age:0,ok:true});
   }
   cands.sort((a,b)=>b.score-a.score);
-  features = nms(cands, CFG.minDist, CFG.maxFeat);
+  features=nms(cands,CFG.minDist,CFG.maxFeat);
 }
+function harrisSc(x,y,W,H){let Ixx=0,Iyy=0,Ixy=0;for(let dy=-3;dy<=3;dy++)for(let dx=-3;dx<=3;dx++){const nx=x+dx,ny=y+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;const gx=currGray[ny*W+nx+1]-currGray[ny*W+nx-1],gy=currGray[(ny+1)*W+nx]-currGray[(ny-1)*W+nx];Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;}return Ixx*Iyy-Ixy*Ixy-.04*(Ixx+Iyy)**2;}
+function nms(pts,d,max){const out=[];for(const p of pts){if(out.length>=max)break;if(!out.some(q=>(p.x-q.x)**2+(p.y-q.y)**2<d*d))out.push(p);}return out;}
+function trackLK(prev,curr,pts,W,H){return pts.map(pt=>{const r=lk(prev,curr,pt.x,pt.y,W,H);if(!r)return{...pt,ok:false};const b=lkBack(curr,prev,r.x,r.y,pt.x,pt.y,W,H);if(!b||(b.x-pt.x)**2+(b.y-pt.y)**2>6)return{...pt,ok:false};return{...pt,x:r.x,y:r.y,vx:r.x-pt.x,vy:r.y-pt.y,age:pt.age+1,ok:true};});}
+function lk(prev,curr,px,py,W,H){const h2=Math.floor(CFG.winSize/2);let x=px,y=py;for(let it=0;it<CFG.maxIter;it++){let Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;for(let dy=-h2;dy<=h2;dy++)for(let dx=-h2;dx<=h2;dx++){const nx=Math.round(px)+dx,ny=Math.round(py)+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;const gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5,gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5,gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;Ixt+=gx*gt;Iyt+=gy*gt;}const det=Ixx*Iyy-Ixy*Ixy;if(Math.abs(det)<1e-7)return null;const vx=-(Iyy*Ixt-Ixy*Iyt)/det,vy=-(Ixx*Iyt-Ixy*Ixt)/det;x+=vx;y+=vy;if(vx*vx+vy*vy<CFG.eps*CFG.eps)break;}if(x<10||x>=W-10||y<10||y>=H-10)return null;return{x,y};}
+function lkBack(prev,curr,px,py,ox,oy,W,H){let x=ox,y=oy,Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){const nx=Math.round(px)+dx,ny=Math.round(py)+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;const gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5,gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5,gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;Ixt+=gx*gt;Iyt+=gy*gt;}const det=Ixx*Iyy-Ixy*Ixy;if(Math.abs(det)<1e-7)return null;return{x:x-(Iyy*Ixt-Ixy*Iyt)/det,y:y-(Ixx*Iyt-Ixy*Ixt)/det};}
+function bil(img,x,y,W,H){x=Math.max(0,Math.min(W-1.001,x));y=Math.max(0,Math.min(H-1.001,y));const x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0;return(img[y0*W+x0]||0)*(1-fx)*(1-fy)+(img[y0*W+x0+1]||0)*fx*(1-fy)+(img[(y0+1)*W+x0]||0)*(1-fx)*fy+(img[(y0+1)*W+x0+1]||0)*fx*fy;}
+function estimateMotion(pts){if(pts.length<3)return{dx:0,dy:0,drot:0};const vxs=[...pts.map(p=>p.vx)].sort((a,b)=>a-b),vys=[...pts.map(p=>p.vy)].sort((a,b)=>a-b),mid=Math.floor(pts.length/2),mdx=vxs[mid],mdy=vys[mid],cx=pts.reduce((s,p)=>s+p.x,0)/pts.length,cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;let drot=0,n=0;for(const p of pts){const dx=p.x-cx,dy=p.y-cy,l=dx*dx+dy*dy;if(l<1)continue;drot+=(dx*(p.vy-mdy)-dy*(p.vx-mdx))/l;n++;}return{dx:mdx,dy:mdy,drot:n?drot/n:0};}
 
-function harrisSc(x,y,W,H){
-  let Ixx=0,Iyy=0,Ixy=0;
-  for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
-    const nx=x+dx,ny=y+dy;
-    if(nx<=0||nx>=W-1||ny<=0||ny>=H-1) continue;
-    const gx=currGray[ny*W+nx+1]-currGray[ny*W+nx-1];
-    const gy=currGray[(ny+1)*W+nx]-currGray[(ny-1)*W+nx];
-    Ixx+=gx*gx; Iyy+=gy*gy; Ixy+=gx*gy;
-  }
-  return Ixx*Iyy-Ixy*Ixy-.04*(Ixx+Iyy)**2;
-}
-
-function nms(pts,d,max){
-  const out=[];
-  for(const p of pts){
-    if(out.length>=max) break;
-    if(!out.some(q=>(p.x-q.x)**2+(p.y-q.y)**2<d*d)) out.push(p);
-  }
-  return out;
-}
-
-/* Lucas-Kanade Optical Flow */
-function trackLK(prev,curr,pts,W,H){
-  return pts.map(pt=>{
-    const r=lk(prev,curr,pt.x,pt.y,W,H); if(!r) return{...pt,ok:false};
-    const b=lkBack(curr,prev,r.x,r.y,pt.x,pt.y,W,H);
-    if(!b||(b.x-pt.x)**2+(b.y-pt.y)**2>6) return{...pt,ok:false};
-    return{...pt,x:r.x,y:r.y,vx:r.x-pt.x,vy:r.y-pt.y,age:pt.age+1,ok:true};
-  });
-}
-function lk(prev,curr,px,py,W,H){
-  const h2=Math.floor(CFG.winSize/2); let x=px,y=py;
-  for(let it=0;it<CFG.maxIter;it++){
-    let Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;
-    for(let dy=-h2;dy<=h2;dy++) for(let dx=-h2;dx<=h2;dx++){
-      const nx=Math.round(px)+dx,ny=Math.round(py)+dy;
-      if(nx<=0||nx>=W-1||ny<=0||ny>=H-1) continue;
-      const gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5;
-      const gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5;
-      const gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);
-      Ixx+=gx*gx; Iyy+=gy*gy; Ixy+=gx*gy; Ixt+=gx*gt; Iyt+=gy*gt;
-    }
-    const det=Ixx*Iyy-Ixy*Ixy;
-    if(Math.abs(det)<1e-7) return null;
-    const vx=-(Iyy*Ixt-Ixy*Iyt)/det, vy=-(Ixx*Iyt-Ixy*Ixt)/det;
-    x+=vx; y+=vy;
-    if(vx*vx+vy*vy<CFG.eps*CFG.eps) break;
-  }
-  if(x<10||x>=W-10||y<10||y>=H-10) return null;
-  return{x,y};
-}
-function lkBack(prev,curr,px,py,ox,oy,W,H){
-  let x=ox,y=oy,Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;
-  for(let dy=-5;dy<=5;dy++) for(let dx=-5;dx<=5;dx++){
-    const nx=Math.round(px)+dx,ny=Math.round(py)+dy;
-    if(nx<=0||nx>=W-1||ny<=0||ny>=H-1) continue;
-    const gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5;
-    const gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5;
-    const gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);
-    Ixx+=gx*gx; Iyy+=gy*gy; Ixy+=gx*gy; Ixt+=gx*gt; Iyt+=gy*gt;
-  }
-  const det=Ixx*Iyy-Ixy*Ixy;
-  if(Math.abs(det)<1e-7) return null;
-  return{x:x-(Iyy*Ixt-Ixy*Iyt)/det, y:y-(Ixx*Iyt-Ixy*Ixt)/det};
-}
-function bil(img,x,y,W,H){
-  x=Math.max(0,Math.min(W-1.001,x)); y=Math.max(0,Math.min(H-1.001,y));
-  const x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0;
-  return (img[y0*W+x0]||0)*(1-fx)*(1-fy)  + (img[y0*W+x0+1]||0)*fx*(1-fy)+
-         (img[(y0+1)*W+x0]||0)*(1-fx)*fy  + (img[(y0+1)*W+x0+1]||0)*fx*fy;
-}
-
-function estimateMotion(pts){
-  if(pts.length<3) return{dx:0,dy:0,drot:0};
-  const vxs=[...pts.map(p=>p.vx)].sort((a,b)=>a-b);
-  const vys=[...pts.map(p=>p.vy)].sort((a,b)=>a-b);
-  const mid=Math.floor(pts.length/2);
-  const mdx=vxs[mid], mdy=vys[mid];
-  const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
-  const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
-  let drot=0,n=0;
-  for(const p of pts){
-    const dx=p.x-cx,dy=p.y-cy,l=dx*dx+dy*dy; if(l<1) continue;
-    drot+=(dx*(p.vy-mdy)-dy*(p.vx-mdx))/l; n++;
-  }
-  return{dx:mdx,dy:mdy,drot:n?drot/n:0};
-}
-
-/* ════════════════════════════════════════════════════════════
-   MODEL PLACEMENT
-   ════════════════════════════════════════════════════════════ */
-function onPlaceBtn(){
-  placeAt(window.innerWidth/2, window.innerHeight/2);
-}
-
-function placeAt(sx, sy){
-  if(trackState!=='tracking' || !loadedGLTF) return;
-
-  if(placedModel) scene3.remove(placedModel.group);
-
-  const group = new THREE.Group();
-  const clone = loadedGLTF.scene.clone(true);
-
-  // Auto-scale to sensible AR size
-  const box=new THREE.Box3().setFromObject(clone);
-  const sz=new THREE.Vector3(); box.getSize(sz);
-  const maxDim=Math.max(sz.x,sz.y,sz.z)||1;
-  const sc=0.18/maxDim;
+// ═══════════════════════════════════════════════════
+//  MODEL PLACEMENT
+// ═══════════════════════════════════════════════════
+function onPlaceBtn(){placeAt(window.innerWidth/2,window.innerHeight/2);}
+function placeAt(sx,sy){
+  if(trackState!=='tracking'||!loadedGLTF)return;
+  if(placedModel)scene3.remove(placedModel.group);
+  const group=new THREE.Group(),clone=loadedGLTF.scene.clone(true);
+  const box=new THREE.Box3().setFromObject(clone),sz=new THREE.Vector3();
+  box.getSize(sz);const maxDim=Math.max(sz.x,sz.y,sz.z)||1,sc=0.18/maxDim;
   clone.scale.setScalar(sc);
-
-  const ctr=new THREE.Vector3(); box.getCenter(ctr);
-  clone.position.set(-ctr.x*sc, -ctr.y*sc, -ctr.z*sc);
+  const ctr=new THREE.Vector3();box.getCenter(ctr);
+  clone.position.set(-ctr.x*sc,-ctr.y*sc,-ctr.z*sc);
   group.add(clone);
-
-  // Ray-cast to fixed depth in front of camera
-  const ndcX=(sx/window.innerWidth)*2-1;
-  const ndcY=-((sy/window.innerHeight)*2-1);
-  const dir=new THREE.Vector3(ndcX,ndcY,-1)
-    .unproject(camera3).sub(camera3.position).normalize();
-  group.position.copy(camera3.position.clone().addScaledVector(dir, 1.4));
-  group.rotation.y = cumRot * 0.5;
-
+  const ndcX=(sx/window.innerWidth)*2-1,ndcY=-((sy/window.innerHeight)*2-1);
+  const dir=new THREE.Vector3(ndcX,ndcY,-1).unproject(camera3).sub(camera3.position).normalize();
+  group.position.copy(camera3.position.clone().addScaledVector(dir,1.4));
+  group.rotation.y=cumRot*0.5;
   scene3.add(group);
-
-  placedModel = {
-    group, clone,
-    anchorTx:cumTx, anchorTy:cumTy, anchorRot:cumRot,
-    basePos:group.position.clone(), baseRot:group.rotation.y,
-    scaleF:1.0
-  };
-
+  placedModel={group,clone,anchorTx:cumTx,anchorTy:cumTy,anchorRot:cumRot,basePos:group.position.clone(),baseRot:group.rotation.y,scaleF:1.0};
   document.getElementById('place-btn').textContent='MOVE MODEL';
   document.getElementById('place-btn').classList.add('placed');
   document.getElementById('remove-btn').style.display='block';
   document.getElementById('scale-bar').style.display='flex';
   document.getElementById('hint').classList.remove('on');
-
-  // Tap ripple
-  const rip=document.createElement('div');
-  rip.className='ripple';
-  rip.style.cssText+=`width:80px;height:80px;left:${sx}px;top:${sy}px;`;
-  document.body.appendChild(rip);
-  setTimeout(()=>rip.remove(),700);
+  const rip=document.createElement('div');rip.className='ripple';rip.style.cssText+=`width:80px;height:80px;left:${sx}px;top:${sy}px;`;document.body.appendChild(rip);setTimeout(()=>rip.remove(),700);
 }
-
 function updateModelPose(){
   const g=placedModel.group;
-  const dTx=cumTx-placedModel.anchorTx;
-  const dTy=cumTy-placedModel.anchorTy;
-  const dRot=cumRot-placedModel.anchorRot;
-  const fovY=camera3.fov*Math.PI/180;
-  const wpp=(2*1.4*Math.tan(fovY/2))/window.innerHeight;
-  g.position.x = placedModel.basePos.x - dTx*wpp;
-  g.position.y = placedModel.basePos.y + dTy*wpp;
-  g.rotation.y = placedModel.baseRot   - dRot*0.5;
-  placedModel.clone.rotation.y += 0.0025; // gentle spin
+  const dTx=cumTx-placedModel.anchorTx,dTy=cumTy-placedModel.anchorTy,dRot=cumRot-placedModel.anchorRot;
+  const wpp=(2*1.4*Math.tan(camera3.fov*Math.PI/180/2))/window.innerHeight;
+  g.position.x=placedModel.basePos.x-dTx*wpp;
+  g.position.y=placedModel.basePos.y+dTy*wpp;
+  g.rotation.y=placedModel.baseRot-dRot*0.5;
+  placedModel.clone.rotation.y+=0.0025;
 }
+function scaleModel(f){if(!placedModel)return;placedModel.scaleF=Math.max(0.05,Math.min(20,placedModel.scaleF*f));placedModel.group.scale.setScalar(placedModel.scaleF);document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';}
+function resetModel(){if(!placedModel)return;scene3.remove(placedModel.group);placedModel=null;document.getElementById('place-btn').textContent='PLACE MODEL';document.getElementById('place-btn').classList.remove('placed');document.getElementById('remove-btn').style.display='none';document.getElementById('scale-bar').style.display='none';document.getElementById('s-scale').textContent='1.0×';if(trackState==='tracking')document.getElementById('hint').classList.add('on');}
 
-function scaleModel(f){
-  if(!placedModel) return;
-  placedModel.scaleF=Math.max(0.05,Math.min(20,placedModel.scaleF*f));
-  placedModel.group.scale.setScalar(placedModel.scaleF);
-  document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';
-}
-
-function resetModel(){
-  if(!placedModel) return;
-  scene3.remove(placedModel.group);
-  placedModel=null;
-  document.getElementById('place-btn').textContent='PLACE MODEL';
-  document.getElementById('place-btn').classList.remove('placed');
-  document.getElementById('remove-btn').style.display='none';
-  document.getElementById('scale-bar').style.display='none';
-  document.getElementById('s-scale').textContent='1.0×';
-  if(trackState==='tracking') document.getElementById('hint').classList.add('on');
-}
-
-/* ════════════════════════════════════════════════════════════
-   MAP / OVERLAY / HUD
-   ════════════════════════════════════════════════════════════ */
-function feedMap(pts,W,H){
-  const sx=window.innerWidth/W, sy=window.innerHeight/H;
-  for(const p of pts) mapPoints.push({x:p.x*sx,y:p.y*sy,age:0});
-  if(mapPoints.length>350) mapPoints.splice(0,mapPoints.length-350);
-  for(const m of mapPoints) m.age++;
-}
-
-function renderSLAM(W,H){
-  const ctx=slamX, sw=slamC.width, sh=slamC.height;
-  const sx=sw/W, sy=sh/H;
-  ctx.clearRect(0,0,sw,sh);
-  if(trackState==='lost'){
-    ctx.fillStyle='#ff2255'; ctx.font='bold 12px Space Mono,monospace';
-    ctx.textAlign='center';
-    ctx.fillText('TRACKING LOST — MOVE SLOWLY',sw/2,sh*.45); return;
-  }
-  for(const f of features){
-    if(!f.ok) continue;
-    const x=f.x*sx, y=f.y*sy, age=Math.min(f.age/20,1);
-    if(Math.abs(f.vx)+Math.abs(f.vy)>.35){
-      ctx.beginPath(); ctx.moveTo(x,y);
-      ctx.lineTo(x-f.vx*sx*5,y-f.vy*sy*5);
-      ctx.strokeStyle=`rgba(0,255,136,${.1+age*.15})`; ctx.lineWidth=1; ctx.stroke();
-    }
-    ctx.beginPath(); ctx.arc(x,y,1.5+age*1.5,0,Math.PI*2);
-    ctx.fillStyle=age>.5?`rgba(0,255,136,${.45+age*.4})`:`rgba(0,200,255,.5)`;
-    ctx.fill();
-  }
-}
-
-function renderMinimap(){
-  const mc=minimapX, mw=minimapC.width, mh=minimapC.height;
-  mc.clearRect(0,0,mw,mh);
-  mc.fillStyle='rgba(0,8,4,.9)'; mc.fillRect(0,0,mw,mh);
-  mc.strokeStyle='rgba(0,255,136,.07)'; mc.lineWidth=.5;
-  for(let i=0;i<mw;i+=10){mc.beginPath();mc.moveTo(i,0);mc.lineTo(i,mh);mc.stroke();}
-  for(let i=0;i<mh;i+=10){mc.beginPath();mc.moveTo(0,i);mc.lineTo(mw,i);mc.stroke();}
-  for(const m of mapPoints.slice(-100)){
-    const px=mw/2+(m.x-window.innerWidth/2)*.06+cumTx*.04;
-    const py=mh/2+(m.y-window.innerHeight/2)*.06+cumTy*.04;
-    if(px<0||px>mw||py<0||py>mh) continue;
-    mc.fillStyle=`rgba(0,255,136,${Math.min(.7,m.age*.025+.15)})`;
-    mc.fillRect(px-1,py-1,2,2);
-  }
-  if(placedModel){
-    const px=mw/2-(cumTx-placedModel.anchorTx)*.04;
-    const py=mh/2-(cumTy-placedModel.anchorTy)*.04;
-    mc.beginPath(); mc.arc(px,py,4,0,Math.PI*2);
-    mc.fillStyle='#00ccff'; mc.shadowBlur=6; mc.shadowColor='#00ccff';
-    mc.fill(); mc.shadowBlur=0;
-  }
-  mc.beginPath(); mc.arc(mw/2,mh/2,4,0,Math.PI*2);
-  mc.fillStyle='#00ff88'; mc.shadowBlur=6; mc.shadowColor='#00ff88';
-  mc.fill(); mc.shadowBlur=0;
-}
-
-function setTrackState(s){
-  if(trackState===s) return; trackState=s;
-  document.getElementById('dot').className='dot '+s;
-  document.getElementById('lost-tint').classList.toggle('on', s==='lost');
-  if(s==='tracking'){
-    document.getElementById('status-lbl').textContent=placedModel?'TRACKING':'TAP TO PLACE';
-    if(!placedModel) document.getElementById('hint').classList.add('on');
-  } else {
-    document.getElementById('status-lbl').textContent='LOST';
-    document.getElementById('hint').classList.remove('on');
-  }
-}
-function setStatus(s,msg){
-  trackState=s;
-  document.getElementById('dot').className='dot '+s;
-  document.getElementById('status-lbl').textContent=msg;
-}
-function updateHUD(motion){
-  const n=features.length;
-  document.getElementById('s-feat').textContent=n;
-  document.getElementById('s-qual').textContent=n>=CFG.maxFeat*.7?'HIGH':n>=CFG.minFeat*2?'MED':'LOW';
-  if(placedModel) document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';
-}
+// ═══════════════════════════════════════════════════
+//  MAP / OVERLAY / MINIMAP / HUD
+// ═══════════════════════════════════════════════════
+function feedMap(pts,W,H){const sx=window.innerWidth/W,sy=window.innerHeight/H;for(const p of pts)mapPoints.push({x:p.x*sx,y:p.y*sy,age:0});if(mapPoints.length>350)mapPoints.splice(0,mapPoints.length-350);for(const m of mapPoints)m.age++;}
+function renderSLAM(W,H){const ctx=slamX,sw=slamC.width,sh=slamC.height,sx=sw/W,sy=sh/H;ctx.clearRect(0,0,sw,sh);if(trackState==='lost'){ctx.fillStyle='#ff2255';ctx.font='bold 12px Space Mono,monospace';ctx.textAlign='center';ctx.fillText('TRACKING LOST — MOVE SLOWLY',sw/2,sh*.45);return;}for(const f of features){if(!f.ok)continue;const x=f.x*sx,y=f.y*sy,age=Math.min(f.age/20,1);if(Math.abs(f.vx)+Math.abs(f.vy)>.35){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-f.vx*sx*5,y-f.vy*sy*5);ctx.strokeStyle=`rgba(0,255,136,${.1+age*.15})`;ctx.lineWidth=1;ctx.stroke();}ctx.beginPath();ctx.arc(x,y,1.5+age*1.5,0,Math.PI*2);ctx.fillStyle=age>.5?`rgba(0,255,136,${.45+age*.4})`:`rgba(0,200,255,.5)`;ctx.fill();}}
+function renderMinimap(){const mc=minimapX,mw=minimapC.width,mh=minimapC.height;mc.clearRect(0,0,mw,mh);mc.fillStyle='rgba(0,8,4,.9)';mc.fillRect(0,0,mw,mh);mc.strokeStyle='rgba(0,255,136,.07)';mc.lineWidth=.5;for(let i=0;i<mw;i+=10){mc.beginPath();mc.moveTo(i,0);mc.lineTo(i,mh);mc.stroke();}for(let i=0;i<mh;i+=10){mc.beginPath();mc.moveTo(0,i);mc.lineTo(mw,i);mc.stroke();}for(const m of mapPoints.slice(-100)){const px=mw/2+(m.x-window.innerWidth/2)*.06+cumTx*.04,py=mh/2+(m.y-window.innerHeight/2)*.06+cumTy*.04;if(px<0||px>mw||py<0||py>mh)continue;mc.fillStyle=`rgba(0,255,136,${Math.min(.7,m.age*.025+.15)})`;mc.fillRect(px-1,py-1,2,2);}if(placedModel){const px=mw/2-(cumTx-placedModel.anchorTx)*.04,py=mh/2-(cumTy-placedModel.anchorTy)*.04;mc.beginPath();mc.arc(px,py,4,0,Math.PI*2);mc.fillStyle='#00ccff';mc.shadowBlur=6;mc.shadowColor='#00ccff';mc.fill();mc.shadowBlur=0;}mc.beginPath();mc.arc(mw/2,mh/2,4,0,Math.PI*2);mc.fillStyle='#00ff88';mc.shadowBlur=6;mc.shadowColor='#00ff88';mc.fill();mc.shadowBlur=0;}
+function setTrackState(s){if(trackState===s)return;trackState=s;document.getElementById('dot').className='dot '+s;document.getElementById('lost-tint').classList.toggle('on',s==='lost');if(s==='tracking'){document.getElementById('status-lbl').textContent=placedModel?'TRACKING':'TAP TO PLACE';if(!placedModel)document.getElementById('hint').classList.add('on');}else{document.getElementById('status-lbl').textContent='LOST';document.getElementById('hint').classList.remove('on');}}
+function setStatus(s,msg){trackState=s;document.getElementById('dot').className='dot '+s;document.getElementById('status-lbl').textContent=msg;}
+function updateHUD(motion){const n=features.length;document.getElementById('s-feat').textContent=n;document.getElementById('s-qual').textContent=n>=CFG.maxFeat*.7?'HIGH':n>=CFG.minFeat*2?'MED':'LOW';if(placedModel)document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';}
 </script>
 </body>
 </html>
