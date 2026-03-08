@@ -72,10 +72,10 @@ body::after{content:'';position:fixed;inset:0;z-index:9;pointer-events:none;back
   <p class="sub">Markerless mobile AR<br>No ARCore · No ARKit · No markers</p>
   <div id="splash-status">
     <div id="progress-track"><div id="progress-fill"></div></div>
-    <div id="splash-msg">INITIALIZING…</div>
+    <div id="splash-msg">LOADING THREE.JS…</div>
   </div>
   <button id="launch-btn" ontouchend="startAR()" onclick="startAR()">▶ START AR</button>
-  <div class="tech">LUCAS-KANADE OPTICAL FLOW<br>FAST-9 CORNER DETECTION<br>THREE.JS ES MODULES · WEBRTC</div>
+  <div class="tech">LUCAS-KANADE OPTICAL FLOW · FAST-9 CORNERS<br>THREE.JS · WEBRTC · PURE JS SLAM</div>
 </div>
 
 <video id="vid" autoplay playsinline muted></video>
@@ -113,94 +113,207 @@ body::after{content:'';position:fixed;inset:0;z-index:9;pointer-events:none;back
   </div>
 </div>
 
-<!-- ES MODULE IMPORT — most reliable way, no CDN mismatch possible -->
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
-  }
-}
-</script>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  STEP 1: Load Three.js from CDN, then load GLB via fetch()
+//  Using fetch() directly — NO GLTFLoader dependency at all
+//  GLB parsed with built-in binary parser below
+// ═══════════════════════════════════════════════════════════════════
 
-<script type="module">
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// ── CONFIG: just the filename ──
+const GLB_FILENAME = 'your-model.glb';
+const GLB_URL = new URL(GLB_FILENAME, window.location.href).href;
 
-// ═══════════════════════════════════════════════════
-//  GLB filename — must match file in same folder
-// ═══════════════════════════════════════════════════
-const GLB_PATH = new URL('your-model.glb', document.baseURI).href;
-
-// ── SLAM CONFIG ──
-const CFG = {maxFeat:100,minFeat:20,winSize:13,maxIter:16,eps:0.015,minDist:14,fastThr:20};
-
-// ── STATE ──
-let vid,hidC,hidX,slamC,slamX,minimapC,minimapX;
-let prevGray=null,currGray=null;
-let features=[],mapPoints=[];
-let placedModel=null;
-let cumTx=0,cumTy=0,cumRot=0;
-let frameN=0,lastFpsT=0,fps=0;
-let trackState='init';
-let isRunning=false;
-let loadedGLTF=null;
-let renderer3,scene3,camera3;
-
-// ── EXPOSE functions needed by inline onclick handlers ──
-window.startAR    = startAR;
-window.scaleModel = scaleModel;
-window.resetModel = resetModel;
-window.onPlaceBtn = onPlaceBtn;
-
-// ═══════════════════════════════════════════════════
-//  LOAD GLB immediately on module load
-// ═══════════════════════════════════════════════════
-setSplashMsg('LOADING MODEL…', 0);
-
-const loader = new GLTFLoader();
-loader.load(
-  GLB_PATH,
-  gltf => {
-    loadedGLTF = gltf;
-    setSplashMsg('MODEL READY ✓', 100);
-    document.getElementById('launch-btn').style.display = 'block';
-    document.getElementById('splash-status').style.opacity = '.5';
-  },
-  xhr => {
-    const pct = xhr.total ? Math.round(xhr.loaded/xhr.total*100) : null;
-    setSplashMsg(pct !== null ? `LOADING ${pct}%` : 'LOADING…', pct ?? 40);
-  },
-  err => {
-    console.error('GLB error:', err);
-    setSplashMsg('❌ Could not load model.\n\nMake sure your-model.glb\nis in the same GitHub repo folder.', 100, true);
-  }
-);
-
-function setSplashMsg(msg, pct, isErr=false) {
-  const el = document.getElementById('splash-msg');
-  el.textContent = msg;
-  el.style.color = isErr ? '#ff2255' : '';
-  if (pct !== null) {
-    document.getElementById('progress-fill').style.width = pct+'%';
+function setSplashMsg(msg, pct, isErr) {
+  document.getElementById('splash-msg').textContent = msg;
+  document.getElementById('splash-msg').style.color = isErr ? '#ff2255' : '';
+  if (pct != null) {
+    document.getElementById('progress-fill').style.width = pct + '%';
     if (isErr) document.getElementById('progress-fill').style.background = '#ff2255';
   }
 }
 
-// ═══════════════════════════════════════════════════
-//  START AR
-// ═══════════════════════════════════════════════════
-async function startAR() {
-  if (!loadedGLTF) return;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},
-      audio:false
+// Load Three.js, then immediately load the GLB via fetch
+setSplashMsg('LOADING THREE.JS…', 5);
+var s = document.createElement('script');
+s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+s.onload = function() {
+  setSplashMsg('LOADING MODEL…', 20);
+  loadGLBviaFetch();
+};
+s.onerror = function() {
+  // fallback CDN
+  var s2 = document.createElement('script');
+  s2.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js';
+  s2.onload = function() { setSplashMsg('LOADING MODEL…', 20); loadGLBviaFetch(); };
+  s2.onerror = function() { setSplashMsg('THREE.JS FAILED TO LOAD\nCheck internet connection', 100, true); };
+  document.head.appendChild(s2);
+};
+document.head.appendChild(s);
+
+// ═══════════════════════════════════════════════════════════════════
+//  GLB LOADER — pure fetch + binary parser, zero external deps
+// ═══════════════════════════════════════════════════════════════════
+var loadedScene = null;
+
+function loadGLBviaFetch() {
+  fetch(GLB_URL)
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var total = parseInt(r.headers.get('content-length') || '0');
+      // Stream with progress
+      if (r.body && total > 0) {
+        var reader = r.body.getReader();
+        var received = 0;
+        var chunks = [];
+        function pump() {
+          return reader.read().then(function(d) {
+            if (d.done) {
+              var merged = new Uint8Array(received);
+              var pos = 0;
+              for (var c of chunks) { merged.set(c, pos); pos += c.length; }
+              return merged.buffer;
+            }
+            chunks.push(d.value);
+            received += d.value.length;
+            setSplashMsg('LOADING ' + Math.round(received/total*100) + '%', Math.round(received/total*80)+20);
+            return pump();
+          });
+        }
+        return pump();
+      }
+      return r.arrayBuffer();
+    })
+    .then(function(buffer) {
+      setSplashMsg('PARSING MODEL…', 95);
+      loadedScene = parseGLB(buffer);
+      setSplashMsg('MODEL READY ✓', 100);
+      document.getElementById('launch-btn').style.display = 'block';
+      document.getElementById('splash-status').style.opacity = '.5';
+    })
+    .catch(function(err) {
+      console.error('GLB fetch error:', err);
+      setSplashMsg('FAILED TO LOAD MODEL\n\n' + GLB_URL + '\n\nError: ' + err.message, 100, true);
     });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  MINIMAL GLB / GLTF BINARY PARSER
+//  Supports: meshes with POSITION, NORMAL, TEXCOORD_0, indices
+//  Returns a THREE.Group
+// ═══════════════════════════════════════════════════════════════════
+function parseGLB(buffer) {
+  var view = new DataView(buffer);
+  var magic = view.getUint32(0, true);
+  if (magic !== 0x46546C67) throw new Error('Not a GLB file');
+  // var version = view.getUint32(4, true);
+  // var length  = view.getUint32(8, true);
+
+  var jsonChunkLen  = view.getUint32(12, true);
+  // var jsonChunkType = view.getUint32(16, true); // must be 0x4E4F534A
+  var jsonText = new TextDecoder().decode(new Uint8Array(buffer, 20, jsonChunkLen));
+  var gltf = JSON.parse(jsonText);
+
+  var binOffset = 20 + jsonChunkLen;
+  var binChunkLen = view.getUint32(binOffset, true);
+  // var binChunkType = view.getUint32(binOffset+4, true); // must be 0x004E4942
+  var binBuffer = buffer.slice(binOffset + 8, binOffset + 8 + binChunkLen);
+
+  var group = new THREE.Group();
+
+  (gltf.meshes || []).forEach(function(mesh) {
+    (mesh.primitives || []).forEach(function(prim) {
+      var geo = new THREE.BufferGeometry();
+
+      function getAccessorData(index) {
+        if (index == null) return null;
+        var acc = gltf.accessors[index];
+        var bv  = gltf.bufferViews[acc.bufferView];
+        var offset = (bv.byteOffset || 0) + (acc.byteOffset || 0);
+        var compMap = {SCALAR:1, VEC2:2, VEC3:3, VEC4:4, MAT4:16};
+        var comps = compMap[acc.type] || 1;
+        var typeMap = {5120:Int8Array,5121:Uint8Array,5122:Int16Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array};
+        var TypedArr = typeMap[acc.componentType] || Float32Array;
+        return new TypedArr(binBuffer, offset, acc.count * comps);
+      }
+
+      var pos = getAccessorData(prim.attributes.POSITION);
+      if (!pos) return;
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+
+      var nor = getAccessorData(prim.attributes.NORMAL);
+      if (nor) geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3));
+
+      var uv = getAccessorData(prim.attributes.TEXCOORD_0);
+      if (uv) geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
+
+      if (prim.indices != null) {
+        var idx = getAccessorData(prim.indices);
+        geo.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+      }
+
+      if (!nor) geo.computeVertexNormals();
+
+      // Material
+      var mat;
+      if (prim.material != null && gltf.materials) {
+        var gm = gltf.materials[prim.material];
+        var pbr = (gm.pbrMetallicRoughness || {});
+        var baseColor = pbr.baseColorFactor || [1,1,1,1];
+        mat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(baseColor[0], baseColor[1], baseColor[2]),
+          metalness: pbr.metallicFactor  != null ? pbr.metallicFactor  : 0.0,
+          roughness: pbr.roughnessFactor != null ? pbr.roughnessFactor : 0.5,
+          transparent: baseColor[3] < 1,
+          opacity: baseColor[3],
+          side: THREE.DoubleSide
+        });
+      } else {
+        mat = new THREE.MeshStandardMaterial({color:0x88aaff, side:THREE.DoubleSide});
+      }
+
+      group.add(new THREE.Mesh(geo, mat));
+    });
+  });
+
+  // If nothing parsed, add a visible fallback cube so you know it loaded
+  if (group.children.length === 0) {
+    group.add(new THREE.Mesh(
+      new THREE.BoxGeometry(1,1,1),
+      new THREE.MeshStandardMaterial({color:0x00ff88, wireframe:true})
+    ));
+  }
+
+  return group;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  SLAM CONFIG
+// ═══════════════════════════════════════════════════════════════════
+var CFG = {maxFeat:100,minFeat:20,winSize:13,maxIter:16,eps:0.015,minDist:14,fastThr:20};
+
+var vid,hidC,hidX,slamC,slamX,minimapC,minimapX;
+var prevGray=null,currGray=null;
+var features=[],mapPoints=[];
+var placedModel=null;
+var cumTx=0,cumTy=0,cumRot=0;
+var frameN=0,lastFpsT=0,fps=0;
+var trackState='init';
+var isRunning=false;
+var renderer3,scene3,camera3;
+
+// ═══════════════════════════════════════════════════════════════════
+//  START AR
+// ═══════════════════════════════════════════════════════════════════
+function startAR() {
+  if (!loadedScene) return;
+  navigator.mediaDevices.getUserMedia({
+    video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},
+    audio:false
+  }).then(function(stream) {
     vid = document.getElementById('vid');
     vid.srcObject = stream;
-    await vid.play();
-
+    vid.play();
     document.getElementById('splash').style.display = 'none';
     document.getElementById('top-bar').style.display = 'flex';
     document.getElementById('bottom-bar').style.display = 'block';
@@ -208,21 +321,17 @@ async function startAR() {
     document.getElementById('xhair').style.display = 'block';
     document.getElementById('hint').style.display = 'block';
     vid.classList.add('on');
-
     initCanvases();
     initThree();
     isRunning = true;
     document.getElementById('hint').classList.add('on');
     setStatus('tracking','TAP TO PLACE');
     requestAnimationFrame(mainLoop);
-  } catch(e) {
-    alert('Camera error: '+e.message+'\n\nNeeds HTTPS to access camera.');
-  }
+  }).catch(function(e) {
+    alert('Camera error: ' + e.message + '\n\nNeeds HTTPS.');
+  });
 }
 
-// ═══════════════════════════════════════════════════
-//  CANVAS & THREE
-// ═══════════════════════════════════════════════════
 function initCanvases() {
   hidC=document.getElementById('cv-hidden');
   hidX=hidC.getContext('2d',{willReadFrequently:true});
@@ -232,47 +341,44 @@ function initCanvases() {
   minimapX=minimapC.getContext('2d');
   onResize();
   window.addEventListener('resize',onResize);
-  screen.orientation?.addEventListener('change',onResize);
 }
 function onResize() {
-  const W=window.innerWidth,H=window.innerHeight;
+  var W=window.innerWidth,H=window.innerHeight;
   slamC.width=W;slamC.height=H;
   hidC.width=Math.min(W,480);hidC.height=Math.min(H,270);
   if(renderer3){renderer3.setSize(W,H);camera3.aspect=W/H;camera3.updateProjectionMatrix();}
 }
 function initThree() {
-  const W=window.innerWidth,H=window.innerHeight;
+  var W=window.innerWidth,H=window.innerHeight;
   renderer3=new THREE.WebGLRenderer({alpha:true,antialias:false,powerPreference:'high-performance'});
   renderer3.setPixelRatio(Math.min(window.devicePixelRatio,2));
   renderer3.setSize(W,H);
   renderer3.setClearColor(0x000000,0);
-  const cv=renderer3.domElement;
+  var cv=renderer3.domElement;
   cv.style.cssText='position:fixed;inset:0;z-index:3;touch-action:none;';
   document.body.appendChild(cv);
   camera3=new THREE.PerspectiveCamera(65,W/H,0.001,500);
   camera3.position.set(0,0,0);
   scene3=new THREE.Scene();
   scene3.add(new THREE.AmbientLight(0xffffff,0.8));
-  const sun=new THREE.DirectionalLight(0xffffff,1.5);
-  sun.position.set(3,8,5);scene3.add(sun);
-  const fill=new THREE.DirectionalLight(0x88ffee,0.4);
-  fill.position.set(-4,-2,-4);scene3.add(fill);
-  cv.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];placeAt(t.clientX,t.clientY);},{passive:false});
+  var sun=new THREE.DirectionalLight(0xffffff,1.5);sun.position.set(3,8,5);scene3.add(sun);
+  var fill=new THREE.DirectionalLight(0x88ffee,0.4);fill.position.set(-4,-2,-4);scene3.add(fill);
+  cv.addEventListener('touchend',function(e){e.preventDefault();var t=e.changedTouches[0];placeAt(t.clientX,t.clientY);},{passive:false});
 }
 
-// ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  MAIN LOOP
-// ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 function mainLoop(ts) {
   if(!isRunning)return;
   frameN++;
   if(ts-lastFpsT>1000){fps=Math.round(frameN*1000/(ts-lastFpsT));frameN=0;lastFpsT=ts;document.getElementById('s-fps').textContent=fps;}
-  const W=hidC.width,H=hidC.height;
+  var W=hidC.width,H=hidC.height;
   hidX.drawImage(vid,0,0,W,H);
   currGray=toGray(hidX.getImageData(0,0,W,H).data,W,H);
   if(!prevGray){prevGray=currGray;detectFeatures(W,H);requestAnimationFrame(mainLoop);return;}
-  features=trackLK(prevGray,currGray,features,W,H).filter(f=>f.ok);
-  const motion=estimateMotion(features);
+  features=trackLK(prevGray,currGray,features,W,H).filter(function(f){return f.ok;});
+  var motion=estimateMotion(features);
   cumTx+=motion.dx;cumTy+=motion.dy;cumRot+=motion.drot;
   if(placedModel)updateModelPose();
   if(features.length<CFG.minFeat){detectFeatures(W,H);setTrackState(features.length<6?'lost':'tracking');}
@@ -286,77 +392,76 @@ function mainLoop(ts) {
   requestAnimationFrame(mainLoop);
 }
 
-// ═══════════════════════════════════════════════════
-//  IMAGE PROCESSING
-// ═══════════════════════════════════════════════════
-function toGray(d,w,h){const g=new Float32Array(w*h);for(let i=0;i<w*h;i++)g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];return g;}
-const C16=[[0,-3],[1,-3],[2,-2],[3,-1],[3,0],[3,1],[2,2],[1,3],[0,3],[-1,3],[-2,2],[-3,1],[-3,0],[-3,-1],[-2,-2],[-1,-3]];
-function detectFeatures(W,H){
-  const cands=[];
-  for(let y=18;y<H-18;y+=3)for(let x=18;x<W-18;x+=3){
-    const p=currGray[y*W+x];let br=0,dk=0;
-    for(const[dx,dy]of C16){const q=currGray[(y+dy)*W+(x+dx)]||0;if(q>p+CFG.fastThr)br++;else if(q<p-CFG.fastThr)dk++;}
-    if(br>=9||dk>=9)cands.push({x,y,score:harrisSc(x,y,W,H),vx:0,vy:0,age:0,ok:true});
-  }
-  cands.sort((a,b)=>b.score-a.score);
-  features=nms(cands,CFG.minDist,CFG.maxFeat);
-}
-function harrisSc(x,y,W,H){let Ixx=0,Iyy=0,Ixy=0;for(let dy=-3;dy<=3;dy++)for(let dx=-3;dx<=3;dx++){const nx=x+dx,ny=y+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;const gx=currGray[ny*W+nx+1]-currGray[ny*W+nx-1],gy=currGray[(ny+1)*W+nx]-currGray[(ny-1)*W+nx];Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;}return Ixx*Iyy-Ixy*Ixy-.04*(Ixx+Iyy)**2;}
-function nms(pts,d,max){const out=[];for(const p of pts){if(out.length>=max)break;if(!out.some(q=>(p.x-q.x)**2+(p.y-q.y)**2<d*d))out.push(p);}return out;}
-function trackLK(prev,curr,pts,W,H){return pts.map(pt=>{const r=lk(prev,curr,pt.x,pt.y,W,H);if(!r)return{...pt,ok:false};const b=lkBack(curr,prev,r.x,r.y,pt.x,pt.y,W,H);if(!b||(b.x-pt.x)**2+(b.y-pt.y)**2>6)return{...pt,ok:false};return{...pt,x:r.x,y:r.y,vx:r.x-pt.x,vy:r.y-pt.y,age:pt.age+1,ok:true};});}
-function lk(prev,curr,px,py,W,H){const h2=Math.floor(CFG.winSize/2);let x=px,y=py;for(let it=0;it<CFG.maxIter;it++){let Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;for(let dy=-h2;dy<=h2;dy++)for(let dx=-h2;dx<=h2;dx++){const nx=Math.round(px)+dx,ny=Math.round(py)+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;const gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5,gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5,gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;Ixt+=gx*gt;Iyt+=gy*gt;}const det=Ixx*Iyy-Ixy*Ixy;if(Math.abs(det)<1e-7)return null;const vx=-(Iyy*Ixt-Ixy*Iyt)/det,vy=-(Ixx*Iyt-Ixy*Ixt)/det;x+=vx;y+=vy;if(vx*vx+vy*vy<CFG.eps*CFG.eps)break;}if(x<10||x>=W-10||y<10||y>=H-10)return null;return{x,y};}
-function lkBack(prev,curr,px,py,ox,oy,W,H){let x=ox,y=oy,Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){const nx=Math.round(px)+dx,ny=Math.round(py)+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;const gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5,gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5,gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;Ixt+=gx*gt;Iyt+=gy*gt;}const det=Ixx*Iyy-Ixy*Ixy;if(Math.abs(det)<1e-7)return null;return{x:x-(Iyy*Ixt-Ixy*Iyt)/det,y:y-(Ixx*Iyt-Ixy*Ixt)/det};}
-function bil(img,x,y,W,H){x=Math.max(0,Math.min(W-1.001,x));y=Math.max(0,Math.min(H-1.001,y));const x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0;return(img[y0*W+x0]||0)*(1-fx)*(1-fy)+(img[y0*W+x0+1]||0)*fx*(1-fy)+(img[(y0+1)*W+x0]||0)*(1-fx)*fy+(img[(y0+1)*W+x0+1]||0)*fx*fy;}
-function estimateMotion(pts){if(pts.length<3)return{dx:0,dy:0,drot:0};const vxs=[...pts.map(p=>p.vx)].sort((a,b)=>a-b),vys=[...pts.map(p=>p.vy)].sort((a,b)=>a-b),mid=Math.floor(pts.length/2),mdx=vxs[mid],mdy=vys[mid],cx=pts.reduce((s,p)=>s+p.x,0)/pts.length,cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;let drot=0,n=0;for(const p of pts){const dx=p.x-cx,dy=p.y-cy,l=dx*dx+dy*dy;if(l<1)continue;drot+=(dx*(p.vy-mdy)-dy*(p.vx-mdx))/l;n++;}return{dx:mdx,dy:mdy,drot:n?drot/n:0};}
+// ═══════════════════════════════════════════════════════════════════
+//  IMAGE PROCESSING + SLAM
+// ═══════════════════════════════════════════════════════════════════
+function toGray(d,w,h){var g=new Float32Array(w*h);for(var i=0;i<w*h;i++)g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];return g;}
+var C16=[[0,-3],[1,-3],[2,-2],[3,-1],[3,0],[3,1],[2,2],[1,3],[0,3],[-1,3],[-2,2],[-3,1],[-3,0],[-3,-1],[-2,-2],[-1,-3]];
+function detectFeatures(W,H){var cands=[];for(var y=18;y<H-18;y+=3)for(var x=18;x<W-18;x+=3){var p=currGray[y*W+x],br=0,dk=0;for(var i=0;i<C16.length;i++){var q=currGray[(y+C16[i][1])*W+(x+C16[i][0])]||0;if(q>p+CFG.fastThr)br++;else if(q<p-CFG.fastThr)dk++;}if(br>=9||dk>=9)cands.push({x:x,y:y,score:harrisSc(x,y,W,H),vx:0,vy:0,age:0,ok:true});}cands.sort(function(a,b){return b.score-a.score;});features=nms(cands,CFG.minDist,CFG.maxFeat);}
+function harrisSc(x,y,W,H){var Ixx=0,Iyy=0,Ixy=0;for(var dy=-3;dy<=3;dy++)for(var dx=-3;dx<=3;dx++){var nx=x+dx,ny=y+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;var gx=currGray[ny*W+nx+1]-currGray[ny*W+nx-1],gy=currGray[(ny+1)*W+nx]-currGray[(ny-1)*W+nx];Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;}return Ixx*Iyy-Ixy*Ixy-.04*Math.pow(Ixx+Iyy,2);}
+function nms(pts,d,max){var out=[];for(var i=0;i<pts.length;i++){if(out.length>=max)break;var skip=false;for(var j=0;j<out.length;j++){if(Math.pow(pts[i].x-out[j].x,2)+Math.pow(pts[i].y-out[j].y,2)<d*d){skip=true;break;}}if(!skip)out.push(pts[i]);}return out;}
+function trackLK(prev,curr,pts,W,H){return pts.map(function(pt){var r=lk(prev,curr,pt.x,pt.y,W,H);if(!r)return Object.assign({},pt,{ok:false});var b=lkBack(curr,prev,r.x,r.y,pt.x,pt.y,W,H);if(!b||Math.pow(b.x-pt.x,2)+Math.pow(b.y-pt.y,2)>6)return Object.assign({},pt,{ok:false});return Object.assign({},pt,{x:r.x,y:r.y,vx:r.x-pt.x,vy:r.y-pt.y,age:pt.age+1,ok:true});});}
+function lk(prev,curr,px,py,W,H){var h2=Math.floor(CFG.winSize/2),x=px,y=py;for(var it=0;it<CFG.maxIter;it++){var Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;for(var dy=-h2;dy<=h2;dy++)for(var dx=-h2;dx<=h2;dx++){var nx=Math.round(px)+dx,ny=Math.round(py)+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;var gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5,gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5,gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;Ixt+=gx*gt;Iyt+=gy*gt;}var det=Ixx*Iyy-Ixy*Ixy;if(Math.abs(det)<1e-7)return null;var vx=-(Iyy*Ixt-Ixy*Iyt)/det,vy=-(Ixx*Iyt-Ixy*Ixt)/det;x+=vx;y+=vy;if(vx*vx+vy*vy<CFG.eps*CFG.eps)break;}if(x<10||x>=W-10||y<10||y>=H-10)return null;return{x:x,y:y};}
+function lkBack(prev,curr,px,py,ox,oy,W,H){var x=ox,y=oy,Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;for(var dy=-5;dy<=5;dy++)for(var dx=-5;dx<=5;dx++){var nx=Math.round(px)+dx,ny=Math.round(py)+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;var gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5,gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5,gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;Ixt+=gx*gt;Iyt+=gy*gt;}var det=Ixx*Iyy-Ixy*Ixy;if(Math.abs(det)<1e-7)return null;return{x:x-(Iyy*Ixt-Ixy*Iyt)/det,y:y-(Ixx*Iyt-Ixy*Ixt)/det};}
+function bil(img,x,y,W,H){x=Math.max(0,Math.min(W-1.001,x));y=Math.max(0,Math.min(H-1.001,y));var x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0;return(img[y0*W+x0]||0)*(1-fx)*(1-fy)+(img[y0*W+x0+1]||0)*fx*(1-fy)+(img[(y0+1)*W+x0]||0)*(1-fx)*fy+(img[(y0+1)*W+x0+1]||0)*fx*fy;}
+function estimateMotion(pts){if(pts.length<3)return{dx:0,dy:0,drot:0};var vxs=pts.map(function(p){return p.vx;}).sort(function(a,b){return a-b;}),vys=pts.map(function(p){return p.vy;}).sort(function(a,b){return a-b;}),mid=Math.floor(pts.length/2),mdx=vxs[mid],mdy=vys[mid],cx=pts.reduce(function(s,p){return s+p.x;},0)/pts.length,cy=pts.reduce(function(s,p){return s+p.y;},0)/pts.length,drot=0,n=0;for(var i=0;i<pts.length;i++){var dx=pts[i].x-cx,dy=pts[i].y-cy,l=dx*dx+dy*dy;if(l<1)continue;drot+=(dx*(pts[i].vy-mdy)-dy*(pts[i].vx-mdx))/l;n++;}return{dx:mdx,dy:mdy,drot:n?drot/n:0};}
 
-// ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  MODEL PLACEMENT
-// ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 function onPlaceBtn(){placeAt(window.innerWidth/2,window.innerHeight/2);}
 function placeAt(sx,sy){
-  if(trackState!=='tracking'||!loadedGLTF)return;
+  if(trackState!=='tracking'||!loadedScene)return;
   if(placedModel)scene3.remove(placedModel.group);
-  const group=new THREE.Group(),clone=loadedGLTF.scene.clone(true);
-  const box=new THREE.Box3().setFromObject(clone),sz=new THREE.Vector3();
-  box.getSize(sz);const maxDim=Math.max(sz.x,sz.y,sz.z)||1,sc=0.18/maxDim;
-  clone.scale.setScalar(sc);
-  const ctr=new THREE.Vector3();box.getCenter(ctr);
-  clone.position.set(-ctr.x*sc,-ctr.y*sc,-ctr.z*sc);
-  group.add(clone);
-  const ndcX=(sx/window.innerWidth)*2-1,ndcY=-((sy/window.innerHeight)*2-1);
-  const dir=new THREE.Vector3(ndcX,ndcY,-1).unproject(camera3).sub(camera3.position).normalize();
-  group.position.copy(camera3.position.clone().addScaledVector(dir,1.4));
-  group.rotation.y=cumRot*0.5;
-  scene3.add(group);
-  placedModel={group,clone,anchorTx:cumTx,anchorTy:cumTy,anchorRot:cumRot,basePos:group.position.clone(),baseRot:group.rotation.y,scaleF:1.0};
+  var group=loadedScene.clone ? loadedScene.clone(true) : cloneGroup(loadedScene);
+  var box=new THREE.Box3().setFromObject(group),sz=new THREE.Vector3();
+  box.getSize(sz);var maxDim=Math.max(sz.x,sz.y,sz.z)||1,sc=0.18/maxDim;
+  group.scale.setScalar(sc);
+  var ctr=new THREE.Vector3();box.getCenter(ctr);
+  group.position.set(-ctr.x*sc,-ctr.y*sc,-ctr.z*sc);
+  var wrap=new THREE.Group();
+  wrap.add(group);
+  var ndcX=(sx/window.innerWidth)*2-1,ndcY=-((sy/window.innerHeight)*2-1);
+  var dir=new THREE.Vector3(ndcX,ndcY,-1).unproject(camera3).sub(camera3.position).normalize();
+  wrap.position.copy(camera3.position.clone().addScaledVector(dir,1.4));
+  wrap.rotation.y=cumRot*0.5;
+  scene3.add(wrap);
+  placedModel={group:wrap,inner:group,anchorTx:cumTx,anchorTy:cumTy,anchorRot:cumRot,basePos:wrap.position.clone(),baseRot:wrap.rotation.y,scaleF:1.0};
   document.getElementById('place-btn').textContent='MOVE MODEL';
   document.getElementById('place-btn').classList.add('placed');
   document.getElementById('remove-btn').style.display='block';
   document.getElementById('scale-bar').style.display='flex';
   document.getElementById('hint').classList.remove('on');
-  const rip=document.createElement('div');rip.className='ripple';rip.style.cssText+=`width:80px;height:80px;left:${sx}px;top:${sy}px;`;document.body.appendChild(rip);setTimeout(()=>rip.remove(),700);
+  var rip=document.createElement('div');rip.className='ripple';rip.style.cssText+='width:80px;height:80px;left:'+sx+'px;top:'+sy+'px;';document.body.appendChild(rip);setTimeout(function(){rip.remove();},700);
+}
+function cloneGroup(src){
+  var g=new THREE.Group();
+  src.children.forEach(function(c){
+    if(c.isMesh) g.add(new THREE.Mesh(c.geometry.clone(), c.material.clone()));
+  });
+  return g;
 }
 function updateModelPose(){
-  const g=placedModel.group;
-  const dTx=cumTx-placedModel.anchorTx,dTy=cumTy-placedModel.anchorTy,dRot=cumRot-placedModel.anchorRot;
-  const wpp=(2*1.4*Math.tan(camera3.fov*Math.PI/180/2))/window.innerHeight;
+  var g=placedModel.group;
+  var dTx=cumTx-placedModel.anchorTx,dTy=cumTy-placedModel.anchorTy,dRot=cumRot-placedModel.anchorRot;
+  var wpp=(2*1.4*Math.tan(camera3.fov*Math.PI/360))/window.innerHeight;
   g.position.x=placedModel.basePos.x-dTx*wpp;
   g.position.y=placedModel.basePos.y+dTy*wpp;
   g.rotation.y=placedModel.baseRot-dRot*0.5;
-  placedModel.clone.rotation.y+=0.0025;
+  placedModel.inner.rotation.y+=0.003;
 }
 function scaleModel(f){if(!placedModel)return;placedModel.scaleF=Math.max(0.05,Math.min(20,placedModel.scaleF*f));placedModel.group.scale.setScalar(placedModel.scaleF);document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';}
 function resetModel(){if(!placedModel)return;scene3.remove(placedModel.group);placedModel=null;document.getElementById('place-btn').textContent='PLACE MODEL';document.getElementById('place-btn').classList.remove('placed');document.getElementById('remove-btn').style.display='none';document.getElementById('scale-bar').style.display='none';document.getElementById('s-scale').textContent='1.0×';if(trackState==='tracking')document.getElementById('hint').classList.add('on');}
 
-// ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  MAP / OVERLAY / MINIMAP / HUD
-// ═══════════════════════════════════════════════════
-function feedMap(pts,W,H){const sx=window.innerWidth/W,sy=window.innerHeight/H;for(const p of pts)mapPoints.push({x:p.x*sx,y:p.y*sy,age:0});if(mapPoints.length>350)mapPoints.splice(0,mapPoints.length-350);for(const m of mapPoints)m.age++;}
-function renderSLAM(W,H){const ctx=slamX,sw=slamC.width,sh=slamC.height,sx=sw/W,sy=sh/H;ctx.clearRect(0,0,sw,sh);if(trackState==='lost'){ctx.fillStyle='#ff2255';ctx.font='bold 12px Space Mono,monospace';ctx.textAlign='center';ctx.fillText('TRACKING LOST — MOVE SLOWLY',sw/2,sh*.45);return;}for(const f of features){if(!f.ok)continue;const x=f.x*sx,y=f.y*sy,age=Math.min(f.age/20,1);if(Math.abs(f.vx)+Math.abs(f.vy)>.35){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-f.vx*sx*5,y-f.vy*sy*5);ctx.strokeStyle=`rgba(0,255,136,${.1+age*.15})`;ctx.lineWidth=1;ctx.stroke();}ctx.beginPath();ctx.arc(x,y,1.5+age*1.5,0,Math.PI*2);ctx.fillStyle=age>.5?`rgba(0,255,136,${.45+age*.4})`:`rgba(0,200,255,.5)`;ctx.fill();}}
-function renderMinimap(){const mc=minimapX,mw=minimapC.width,mh=minimapC.height;mc.clearRect(0,0,mw,mh);mc.fillStyle='rgba(0,8,4,.9)';mc.fillRect(0,0,mw,mh);mc.strokeStyle='rgba(0,255,136,.07)';mc.lineWidth=.5;for(let i=0;i<mw;i+=10){mc.beginPath();mc.moveTo(i,0);mc.lineTo(i,mh);mc.stroke();}for(let i=0;i<mh;i+=10){mc.beginPath();mc.moveTo(0,i);mc.lineTo(mw,i);mc.stroke();}for(const m of mapPoints.slice(-100)){const px=mw/2+(m.x-window.innerWidth/2)*.06+cumTx*.04,py=mh/2+(m.y-window.innerHeight/2)*.06+cumTy*.04;if(px<0||px>mw||py<0||py>mh)continue;mc.fillStyle=`rgba(0,255,136,${Math.min(.7,m.age*.025+.15)})`;mc.fillRect(px-1,py-1,2,2);}if(placedModel){const px=mw/2-(cumTx-placedModel.anchorTx)*.04,py=mh/2-(cumTy-placedModel.anchorTy)*.04;mc.beginPath();mc.arc(px,py,4,0,Math.PI*2);mc.fillStyle='#00ccff';mc.shadowBlur=6;mc.shadowColor='#00ccff';mc.fill();mc.shadowBlur=0;}mc.beginPath();mc.arc(mw/2,mh/2,4,0,Math.PI*2);mc.fillStyle='#00ff88';mc.shadowBlur=6;mc.shadowColor='#00ff88';mc.fill();mc.shadowBlur=0;}
+// ═══════════════════════════════════════════════════════════════════
+function feedMap(pts,W,H){var sx=window.innerWidth/W,sy=window.innerHeight/H;for(var i=0;i<pts.length;i++)mapPoints.push({x:pts[i].x*sx,y:pts[i].y*sy,age:0});if(mapPoints.length>350)mapPoints.splice(0,mapPoints.length-350);for(var j=0;j<mapPoints.length;j++)mapPoints[j].age++;}
+function renderSLAM(W,H){var ctx=slamX,sw=slamC.width,sh=slamC.height,sx=sw/W,sy=sh/H;ctx.clearRect(0,0,sw,sh);if(trackState==='lost'){ctx.fillStyle='#ff2255';ctx.font='bold 12px monospace';ctx.textAlign='center';ctx.fillText('TRACKING LOST — MOVE SLOWLY',sw/2,sh*.45);return;}for(var i=0;i<features.length;i++){var f=features[i];if(!f.ok)continue;var x=f.x*sx,y=f.y*sy,age=Math.min(f.age/20,1);if(Math.abs(f.vx)+Math.abs(f.vy)>.35){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-f.vx*sx*5,y-f.vy*sy*5);ctx.strokeStyle='rgba(0,255,136,'+(0.1+age*0.15)+')';ctx.lineWidth=1;ctx.stroke();}ctx.beginPath();ctx.arc(x,y,1.5+age*1.5,0,Math.PI*2);ctx.fillStyle=age>.5?'rgba(0,255,136,'+(0.45+age*0.4)+')':'rgba(0,200,255,.5)';ctx.fill();}}
+function renderMinimap(){var mc=minimapX,mw=minimapC.width,mh=minimapC.height;mc.clearRect(0,0,mw,mh);mc.fillStyle='rgba(0,8,4,.9)';mc.fillRect(0,0,mw,mh);mc.strokeStyle='rgba(0,255,136,.07)';mc.lineWidth=.5;for(var i=0;i<mw;i+=10){mc.beginPath();mc.moveTo(i,0);mc.lineTo(i,mh);mc.stroke();}for(var j=0;j<mh;j+=10){mc.beginPath();mc.moveTo(0,j);mc.lineTo(mw,j);mc.stroke();}var slice=mapPoints.slice(-100);for(var k=0;k<slice.length;k++){var m=slice[k];var px=mw/2+(m.x-window.innerWidth/2)*.06+cumTx*.04,py=mh/2+(m.y-window.innerHeight/2)*.06+cumTy*.04;if(px<0||px>mw||py<0||py>mh)continue;mc.fillStyle='rgba(0,255,136,'+Math.min(.7,m.age*.025+.15)+')';mc.fillRect(px-1,py-1,2,2);}if(placedModel){var ppx=mw/2-(cumTx-placedModel.anchorTx)*.04,ppy=mh/2-(cumTy-placedModel.anchorTy)*.04;mc.beginPath();mc.arc(ppx,ppy,4,0,Math.PI*2);mc.fillStyle='#00ccff';mc.shadowBlur=6;mc.shadowColor='#00ccff';mc.fill();mc.shadowBlur=0;}mc.beginPath();mc.arc(mw/2,mh/2,4,0,Math.PI*2);mc.fillStyle='#00ff88';mc.shadowBlur=6;mc.shadowColor='#00ff88';mc.fill();mc.shadowBlur=0;}
 function setTrackState(s){if(trackState===s)return;trackState=s;document.getElementById('dot').className='dot '+s;document.getElementById('lost-tint').classList.toggle('on',s==='lost');if(s==='tracking'){document.getElementById('status-lbl').textContent=placedModel?'TRACKING':'TAP TO PLACE';if(!placedModel)document.getElementById('hint').classList.add('on');}else{document.getElementById('status-lbl').textContent='LOST';document.getElementById('hint').classList.remove('on');}}
 function setStatus(s,msg){trackState=s;document.getElementById('dot').className='dot '+s;document.getElementById('status-lbl').textContent=msg;}
-function updateHUD(motion){const n=features.length;document.getElementById('s-feat').textContent=n;document.getElementById('s-qual').textContent=n>=CFG.maxFeat*.7?'HIGH':n>=CFG.minFeat*2?'MED':'LOW';if(placedModel)document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';}
+function updateHUD(motion){var n=features.length;document.getElementById('s-feat').textContent=n;document.getElementById('s-qual').textContent=n>=CFG.maxFeat*.7?'HIGH':n>=CFG.minFeat*2?'MED':'LOW';if(placedModel)document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';}
 </script>
 </body>
 </html>
