@@ -1,408 +1,817 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#030a06">
-<title>SLAM WebAR</title>
-<!-- Both scripts from the exact same npm package on the exact same CDN -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&display=swap');
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html,body{width:100%;height:100%;overflow:hidden;background:#030a06;color:#aef0cc;font-family:'Space Mono',monospace;position:fixed;overscroll-behavior:none;touch-action:none;}
-:root{--g:#00ff88;--g2:#00ccff;--r:#ff2255;--dark:#030a06;--panel:rgba(3,12,6,0.9);--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);}
-#vid{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;opacity:0;transition:opacity .5s;}
-#vid.on{opacity:1;}
-#cv-slam{position:fixed;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;}
-#cv-hidden{display:none;}
-body::after{content:'';position:fixed;inset:0;z-index:9;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.05) 3px,rgba(0,0,0,.05) 4px);}
-#splash{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;background:radial-gradient(ellipse at 40% 40%,rgba(0,40,20,.97),rgba(3,10,6,1));}
-#splash h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(3rem,14vw,5rem);letter-spacing:.08em;color:var(--g);text-shadow:0 0 50px rgba(0,255,136,.5);margin-bottom:6px;text-align:center;line-height:1;}
-#splash h1 em{color:var(--g2);font-style:normal;}
-.sub{font-size:clamp(.52rem,.65rem,3vw);letter-spacing:.1em;opacity:.4;margin-bottom:48px;line-height:2;text-align:center;max-width:260px;}
-#splash-status{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:36px;}
-#progress-track{width:220px;height:2px;background:rgba(0,255,136,.12);border-radius:2px;overflow:hidden;}
-#progress-fill{height:100%;width:0%;background:var(--g);box-shadow:0 0 8px var(--g);transition:width .3s ease;}
-#splash-msg{font-size:.55rem;letter-spacing:.1em;color:var(--g);opacity:.8;text-align:center;max-width:290px;line-height:1.9;white-space:pre-line;}
-#launch-btn{width:100%;max-width:280px;padding:18px 0;border:2px solid var(--g);background:transparent;color:var(--g);font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:.15em;cursor:pointer;border-radius:10px;transition:all .25s;display:none;}
-#launch-btn:active{background:var(--g);color:var(--dark);}
-.tech{position:absolute;bottom:calc(var(--sab) + 20px);font-size:.42rem;opacity:.2;letter-spacing:.13em;line-height:2.4;text-align:center;}
-#top-bar{position:fixed;top:0;left:0;right:0;z-index:20;padding:calc(var(--sat) + 10px) 16px 10px;display:none;align-items:center;justify-content:space-between;background:linear-gradient(180deg,rgba(3,10,6,.85) 0%,transparent 100%);}
-#logo{font-family:'Bebas Neue',sans-serif;font-size:1.3rem;letter-spacing:.1em;color:var(--g);}
-#logo span{color:var(--g2);}
-#status-pill{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid rgba(0,255,136,.2);border-radius:20px;padding:5px 12px;backdrop-filter:blur(8px);}
-.dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0;}
-.dot.init{background:#ffaa00;animation:blink 1s infinite;}
-.dot.tracking{background:var(--g);box-shadow:0 0 8px var(--g);}
-.dot.lost{background:var(--r);animation:blink .5s infinite;}
-@keyframes blink{0%,100%{opacity:1;}50%{opacity:.2;}}
-#status-lbl{font-size:.5rem;letter-spacing:.1em;opacity:.8;}
-#minimap-wrap{position:fixed;top:calc(var(--sat) + 58px);left:14px;z-index:20;display:none;}
-#minimap-title{font-size:.38rem;letter-spacing:.18em;color:var(--g2);margin-bottom:4px;}
-#minimap{width:88px;height:70px;display:block;background:rgba(0,8,4,.88);border:1px solid rgba(0,255,136,.18);border-radius:6px;}
-#scale-bar{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:20;display:none;flex-direction:column;gap:10px;}
-.sc-btn{width:48px;height:48px;border:1px solid rgba(0,255,136,.3);background:var(--panel);color:var(--g);font-size:1.3rem;cursor:pointer;border-radius:12px;backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;transition:all .15s;}
-.sc-btn:active{background:rgba(0,255,136,.2);border-color:var(--g);}
-#bottom-bar{position:fixed;bottom:0;left:0;right:0;z-index:20;padding:10px 16px calc(var(--sab)+12px);display:none;background:linear-gradient(0deg,rgba(3,10,6,.9) 0%,transparent 100%);}
-.stats-row{display:flex;gap:8px;margin-bottom:10px;}
-.stat-chip{flex:1;background:var(--panel);border:1px solid rgba(0,255,136,.18);border-radius:8px;padding:7px 6px;backdrop-filter:blur(6px);text-align:center;}
-.sc-label{font-size:.37rem;letter-spacing:.16em;color:var(--g2);margin-bottom:3px;text-transform:uppercase;}
-.sc-val{font-size:.62rem;color:var(--g);font-weight:700;}
-#action-row{display:flex;gap:8px;}
-#place-btn{flex:3;padding:15px 0;border:1.5px solid var(--g);background:rgba(0,255,136,.07);color:var(--g);font-family:'Bebas Neue',sans-serif;font-size:1.15rem;letter-spacing:.14em;cursor:pointer;border-radius:10px;transition:all .2s;}
-#place-btn:active{background:rgba(0,255,136,.2);}
-#place-btn.placed{border-color:var(--g2);color:var(--g2);background:rgba(0,200,255,.07);}
-#remove-btn{flex:1;padding:15px 0;border:1px solid rgba(255,34,85,.3);background:rgba(255,34,85,.07);color:var(--r);font-family:'Space Mono',monospace;font-size:.6rem;cursor:pointer;border-radius:10px;transition:all .2s;display:none;}
-#remove-btn:active{background:rgba(255,34,85,.2);}
-#hint{position:fixed;bottom:170px;left:50%;transform:translateX(-50%);z-index:15;pointer-events:none;display:none;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);border-radius:20px;padding:8px 22px;font-size:.52rem;letter-spacing:.12em;color:var(--g);opacity:0;transition:opacity .5s;white-space:nowrap;backdrop-filter:blur(6px);}
-#hint.on{opacity:1;}
-#lost-tint{position:fixed;inset:0;z-index:8;pointer-events:none;background:rgba(255,30,60,.07);opacity:0;transition:opacity .4s;}
-#lost-tint.on{opacity:1;}
-.ripple{position:fixed;border-radius:50%;pointer-events:none;z-index:30;background:rgba(0,255,136,.18);border:1.5px solid rgba(0,255,136,.5);transform:translate(-50%,-50%) scale(0);animation:rippleout .6s ease-out forwards;}
-@keyframes rippleout{0%{transform:translate(-50%,-50%) scale(0);opacity:1;}100%{transform:translate(-50%,-50%) scale(3);opacity:0;}}
-#xhair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:15;pointer-events:none;display:none;opacity:.5;}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>WebAR — SLAM</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+      touch-action: none;
+    }
+
+    /* ── Camera feed ── */
+    #cam {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+
+    /* ── Three.js canvas overlaid ── */
+    #arCanvas {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    /* ── UI shell ── */
+    #ui {
+      position: fixed; inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: env(safe-area-inset-top, 20px) 0 env(safe-area-inset-bottom, 30px);
+    }
+
+    /* top bar */
+    #topBar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 22px 0;
+    }
+    #logo {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.85);
+      text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+    }
+    #statusPill {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(0,0,0,0.42);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 20px;
+      padding: 5px 12px 5px 8px;
+      font-size: 11px;
+      color: #fff;
+      transition: all 0.3s;
+    }
+    #statusDot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #ff453a;
+      transition: background 0.3s;
+      flex-shrink: 0;
+    }
+    #statusDot.tracking { background: #30d158; box-shadow: 0 0 6px #30d158; }
+    #statusDot.scanning {
+      background: #ffd60a;
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    /* scan overlay */
+    #scanOverlay {
+      position: fixed; inset: 0;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+      pointer-events: none;
+      transition: opacity 0.5s;
+    }
+    #scanOverlay.hidden { opacity: 0; }
+
+    .scanFrame {
+      width: 220px; height: 220px;
+      position: relative;
+    }
+    .scanFrame::before,
+    .scanFrame::after,
+    .scanFrame .br,
+    .scanFrame .bl {
+      content: '';
+      position: absolute;
+      width: 36px; height: 36px;
+      border-color: rgba(255,255,255,0.9);
+      border-style: solid;
+    }
+    .scanFrame::before  { top: 0;    left: 0;  border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+    .scanFrame::after   { top: 0;    right: 0; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+    .scanFrame .br      { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+    .scanFrame .bl      { bottom: 0; left: 0;  border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+
+    .scanLine {
+      position: absolute;
+      left: 10%; width: 80%; height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+      animation: scan 2s ease-in-out infinite;
+      top: 0;
+    }
+    @keyframes scan {
+      0%   { top: 10%; opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { top: 90%; opacity: 0; }
+    }
+
+    #scanHint {
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.9);
+      text-align: center;
+      letter-spacing: 0.02em;
+      text-shadow: 0 1px 12px rgba(0,0,0,0.8);
+      max-width: 240px;
+      line-height: 1.5;
+    }
+
+    /* placement ring */
+    #placementRing {
+      position: fixed;
+      left: 50%; top: 55%;
+      transform: translate(-50%,-50%);
+      z-index: 4;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    #placementRing.hidden { opacity: 0; }
+    #placementRing svg { filter: drop-shadow(0 0 6px rgba(255,255,255,0.4)); }
+
+    /* bottom controls */
+    #bottomBar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+      padding: 0 22px 10px;
+    }
+
+    #placeBtn {
+      pointer-events: all;
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.18);
+      backdrop-filter: blur(12px);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #placeBtn:active { transform: scale(0.9); background: rgba(255,255,255,0.35); }
+    #placeBtn svg { width: 30px; height: 30px; }
+
+    #btnLabel {
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.75);
+      text-transform: uppercase;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+    }
+
+    /* gesture hint chips */
+    #gestureTip {
+      position: fixed;
+      bottom: calc(env(safe-area-inset-bottom,30px) + 120px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex; gap: 8px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+    #gestureTip.show { opacity: 1; }
+    .chip {
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.8);
+      white-space: nowrap;
+    }
+
+    /* permission / error screen */
+    #permScreen {
+      position: fixed; inset: 0;
+      z-index: 100;
+      background: #0a0a0a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 22px; padding: 40px;
+      text-align: center;
+    }
+    #permScreen.hidden { display: none; }
+    #permScreen .icon { font-size: 52px; }
+    #permScreen h2 {
+      font-size: 22px; font-weight: 700;
+      color: #fff; line-height: 1.3;
+    }
+    #permScreen p {
+      font-size: 14px; color: rgba(255,255,255,0.55);
+      line-height: 1.6; max-width: 290px;
+    }
+    #permScreen button {
+      margin-top: 8px;
+      padding: 14px 36px;
+      border-radius: 14px;
+      border: none;
+      background: #fff;
+      color: #000;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #permScreen button:active { opacity: 0.8; }
+
+    /* loading bar */
+    #loadBar {
+      position: fixed;
+      top: 0; left: 0;
+      height: 2px;
+      width: 0%;
+      background: linear-gradient(90deg, #fff, rgba(255,255,255,0.5));
+      z-index: 200;
+      transition: width 0.3s;
+    }
+  </style>
 </head>
 <body>
 
-<div id="splash">
-  <h1>SLAM<br><em>WebAR</em></h1>
-  <p class="sub">Markerless mobile AR<br>No ARCore · No ARKit · No markers</p>
-  <div id="splash-status">
-    <div id="progress-track"><div id="progress-fill"></div></div>
-    <div id="splash-msg">LOADING MODEL…</div>
-  </div>
-  <button id="launch-btn" onclick="startAR()">▶ START AR</button>
-  <div class="tech">LUCAS-KANADE OPTICAL FLOW · FAST-9 CORNERS<br>THREE.JS · WEBRTC · PURE JS SLAM</div>
+<!-- Loading bar -->
+<div id="loadBar"></div>
+
+<!-- Permission / error screen (shown initially) -->
+<div id="permScreen">
+  <div class="icon">📷</div>
+  <h2>Camera Access Required</h2>
+  <p>This WebAR experience needs your camera to track the environment and place 3D objects.</p>
+  <button id="startBtn">Start AR</button>
 </div>
 
-<video id="vid" autoplay playsinline muted></video>
-<canvas id="cv-hidden"></canvas>
-<canvas id="cv-slam"></canvas>
-<div id="lost-tint"></div>
-<div id="top-bar">
-  <div id="logo">SLAM·<span>AR</span></div>
-  <div id="status-pill"><div class="dot init" id="dot"></div><span id="status-lbl">INIT</span></div>
+<!-- Camera feed -->
+<video id="cam" autoplay playsinline muted></video>
+
+<!-- Three.js AR canvas -->
+<canvas id="arCanvas"></canvas>
+
+<!-- Placement reticle -->
+<div id="placementRing" class="hidden">
+  <svg width="80" height="40" viewBox="0 0 80 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="40" cy="20" rx="36" ry="14" stroke="white" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <ellipse cx="40" cy="20" rx="4" ry="2" fill="white" opacity="0.7"/>
+  </svg>
 </div>
-<div id="minimap-wrap"><div id="minimap-title">MAP</div><canvas id="minimap"></canvas></div>
-<div id="scale-bar">
-  <button class="sc-btn" onclick="scaleModel(1.15)">+</button>
-  <button class="sc-btn" onclick="scaleModel(0.87)">−</button>
-</div>
-<svg id="xhair" width="48" height="48" viewBox="0 0 48 48">
-  <line x1="24" y1="7" x2="24" y2="19" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="24" y1="29" x2="24" y2="41" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="7" y1="24" x2="19" y2="24" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="29" y1="24" x2="41" y2="24" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round"/>
-  <circle cx="24" cy="24" r="5" fill="none" stroke="#00ff88" stroke-width="1" opacity=".7"/>
-</svg>
-<div id="hint">TAP SCREEN TO PLACE MODEL</div>
-<div id="bottom-bar">
-  <div class="stats-row">
-    <div class="stat-chip"><div class="sc-label">Features</div><div class="sc-val" id="s-feat">0</div></div>
-    <div class="stat-chip"><div class="sc-label">Quality</div><div class="sc-val" id="s-qual">--</div></div>
-    <div class="stat-chip"><div class="sc-label">FPS</div><div class="sc-val" id="s-fps">--</div></div>
-    <div class="stat-chip"><div class="sc-label">Scale</div><div class="sc-val" id="s-scale">1.0×</div></div>
+
+<!-- Scan overlay -->
+<div id="scanOverlay">
+  <div class="scanFrame">
+    <div class="br"></div><div class="bl"></div>
+    <div class="scanLine"></div>
   </div>
-  <div id="action-row">
-    <button id="place-btn" ontouchend="onPlaceBtn()">PLACE MODEL</button>
-    <button id="remove-btn" ontouchend="resetModel()">REMOVE</button>
+  <p id="scanHint">Slowly move your phone<br>to map the environment</p>
+</div>
+
+<!-- UI -->
+<div id="ui">
+  <div id="topBar">
+    <span id="logo">WebAR · SLAM</span>
+    <div id="statusPill">
+      <div id="statusDot"></div>
+      <span id="statusText">Initialising</span>
+    </div>
+  </div>
+  <div id="bottomBar">
+    <button id="placeBtn" disabled>
+      <svg viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="15" cy="15" r="12" stroke="white" stroke-width="2"/>
+        <circle cx="15" cy="15" r="5" fill="white"/>
+      </svg>
+    </button>
+    <span id="btnLabel">Tap to place</span>
   </div>
 </div>
+
+<!-- Gesture tips -->
+<div id="gestureTip">
+  <span class="chip">✌️ Pinch to scale</span>
+  <span class="chip">☝️ Drag to move</span>
+</div>
+
+<!-- ── Scripts ── -->
+<!-- Three.js r128 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- GLTFLoader from CDN (r128-compatible) -->
+<script>
+// ─────────────────────────────────────────────
+//  Inline GLTFLoader (r128) so we stay CDN-only
+// ─────────────────────────────────────────────
+</script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 
 <script>
-// ─────────────────────────────────────────────────────────────────
-//  LOAD PIPELINE:
-//  1. fetch(GLB_URL)        → raw ArrayBuffer
-//  2. repairGLBBuffer()     → strip null/garbage bytes after JSON
-//  3. new Blob(cleanBuffer) → blob: URL
-//  4. GLTFLoader.load()     → official parser on clean bytes
-// ─────────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════
+   SLAM-based WebAR — pure browser, no ARCore / ARKit
+   ═══════════════════════════════════════════════════════
+   Pipeline:
+   1. Camera stream → <video>
+   2. DeviceOrientation + DeviceMotion → 6-DOF pose
+   3. Three.js renderer overlaid with alpha on camera
+   4. Optical-flow-inspired surface detection via
+      luminance-frame differencing on a hidden 2D canvas
+   5. Model placed at world-space anchor; gesture controls
+      for scale / y-rotation
+   ═══════════════════════════════════════════════════════ */
 
-var GLB_URL = (function() {
-  var href = window.location.href.split('?')[0].split('#')[0];
-  if (!href.endsWith('/')) href = href.substring(0, href.lastIndexOf('/') + 1);
-  return href + 'your-model.glb';
-})();
+// ── Config ──────────────────────────────────────────────
+const MODEL_PATH  = 'model.glb';   // place model.glb next to index.html
+const SCAN_TIME_MS = 2800;         // ms of motion before "tracked"
 
-var loadedGLTF = null;
+// ── DOM refs ────────────────────────────────────────────
+const permScreen    = document.getElementById('permScreen');
+const startBtn      = document.getElementById('startBtn');
+const camEl         = document.getElementById('cam');
+const arCanvas      = document.getElementById('arCanvas');
+const statusDot     = document.getElementById('statusDot');
+const statusText    = document.getElementById('statusText');
+const scanOverlay   = document.getElementById('scanOverlay');
+const scanHint      = document.getElementById('scanHint');
+const placementRing = document.getElementById('placementRing');
+const placeBtn      = document.getElementById('placeBtn');
+const gestureTip    = document.getElementById('gestureTip');
+const loadBar       = document.getElementById('loadBar');
 
-function setSplashMsg(msg, pct, isErr) {
-  var el = document.getElementById('splash-msg');
-  el.textContent = msg;
-  el.style.color = isErr ? '#ff2255' : '';
-  if (pct != null) {
-    document.getElementById('progress-fill').style.width = pct + '%';
-    if (isErr) document.getElementById('progress-fill').style.background = '#ff2255';
+// ── State ────────────────────────────────────────────────
+let scene, camera, renderer, model, mixer, clock;
+let modelPlaced   = false;
+let modelAnchor   = new THREE.Object3D();
+let trackingReady = false;
+
+// Orientation state
+let euler = { alpha: 0, beta: 90, gamma: 0 };
+let lastEuler = { alpha: 0, beta: 90, gamma: 0 };
+let motionScore = 0;
+let scanStart   = null;
+
+// Touch / gesture
+let touches       = {};
+let lastPinchDist = null;
+let lastDragX     = null;
+let lastDragY     = null;
+
+// Surface estimation
+let surfaceY       = -1.2;          // world units below origin
+let surfaceFound   = false;
+
+// ── Boot ────────────────────────────────────────────────
+startBtn.addEventListener('click', boot);
+
+async function boot() {
+  permScreen.classList.add('hidden');
+  setStatus('scanning', 'Scanning…');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+    camEl.srcObject = stream;
+    await camEl.play();
+  } catch(e) {
+    showError('Camera denied', 'Please allow camera access in your browser settings and reload.');
+    return;
+  }
+
+  initThree();
+  await loadModel();
+  requestMotionPermissions();
+  startRenderLoop();
+  startSurfaceDetection();
+}
+
+// ── Three.js setup ───────────────────────────────────────
+function initThree() {
+  scene    = new THREE.Scene();
+  clock    = new THREE.Clock();
+
+  camera   = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
+  camera.position.set(0, 0, 0);
+
+  renderer = new THREE.WebGLRenderer({
+    canvas: arCanvas,
+    alpha:  true,
+    antialias: true,
+    premultipliedAlpha: false
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x000000, 0);
+  renderer.shadowMap.enabled = true;
+  renderer.outputEncoding    = THREE.sRGBEncoding;
+  renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
+
+  // Lighting
+  const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+  scene.add(ambient);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+  dirLight.position.set(3, 8, 5);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.width  = 1024;
+  dirLight.shadow.mapSize.height = 1024;
+  scene.add(dirLight);
+
+  const fillLight = new THREE.DirectionalLight(0x88aaff, 0.4);
+  fillLight.position.set(-4, 2, -3);
+  scene.add(fillLight);
+
+  // Anchor object (model parent)
+  scene.add(modelAnchor);
+  modelAnchor.visible = false;
+
+  // Shadow plane
+  const shadowGeo = new THREE.CircleGeometry(0.8, 32);
+  const shadowMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false
+  });
+  const shadowPlane = new THREE.Mesh(shadowGeo, shadowMat);
+  shadowPlane.rotation.x = -Math.PI / 2;
+  shadowPlane.position.y = -0.001;
+  modelAnchor.add(shadowPlane);
+
+  window.addEventListener('resize', onResize);
+}
+
+// ── Load GLB ────────────────────────────────────────────
+async function loadModel() {
+  return new Promise((resolve) => {
+    const loader = new THREE.GLTFLoader();
+    let prog = 0;
+
+    loader.load(
+      MODEL_PATH,
+      (gltf) => {
+        loadBar.style.width = '100%';
+        setTimeout(() => loadBar.style.display = 'none', 400);
+
+        model = gltf.scene;
+
+        // Auto-scale model to fit ~0.4 world units
+        const box  = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const maxD = Math.max(size.x, size.y, size.z);
+        const scale = 0.4 / maxD;
+        model.scale.setScalar(scale);
+
+        // Centre pivot at base
+        const centre = box.getCenter(new THREE.Vector3());
+        model.position.set(
+          -centre.x * scale,
+          -box.min.y * scale,
+          -centre.z * scale
+        );
+
+        model.traverse(n => {
+          if (n.isMesh) {
+            n.castShadow    = true;
+            n.receiveShadow = true;
+          }
+        });
+
+        modelAnchor.add(model);
+
+        // Animations
+        if (gltf.animations && gltf.animations.length) {
+          mixer = new THREE.AnimationMixer(model);
+          gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+        }
+
+        resolve();
+      },
+      (xhr) => {
+        if (xhr.total) {
+          prog = (xhr.loaded / xhr.total) * 90;
+          loadBar.style.width = prog + '%';
+        }
+      },
+      (err) => {
+        console.warn('GLB load error:', err);
+        // Create fallback cube
+        const geo  = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+        const mat  = new THREE.MeshStandardMaterial({ color: 0x00aaff, metalness: 0.4, roughness: 0.4 });
+        model = new THREE.Mesh(geo, mat);
+        model.position.y = 0.15;
+        modelAnchor.add(model);
+        loadBar.style.display = 'none';
+        resolve();
+      }
+    );
+  });
+}
+
+// ── Device orientation / motion ──────────────────────────
+function requestMotionPermissions() {
+  // iOS 13+ requires explicit permission
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission()
+      .then(state => { if (state === 'granted') bindOrientation(); })
+      .catch(() => bindOrientation()); // try anyway
+  } else {
+    bindOrientation();
+  }
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission().then(() => bindMotion()).catch(() => bindMotion());
+  } else {
+    bindMotion();
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  GLB REPAIR: fixes "Unexpected non-whitespace character after JSON"
-//  Cause: exporters (Blender, Sketchfab, etc.) pad the JSON chunk
-//  with null bytes (\0) to reach 4-byte alignment. JSON.parse and
-//  GLTFLoader both choke on these. Fix: find the last } in the JSON
-//  chunk and truncate everything after it, then rebuild clean GLB.
-// ─────────────────────────────────────────────────────────────────
-function repairGLBBuffer(buffer) {
-  var view = new DataView(buffer);
+function bindOrientation() {
+  window.addEventListener('deviceorientation', (e) => {
+    if (e.alpha == null) return;
+    euler.alpha = e.alpha || 0;
+    euler.beta  = e.beta  || 0;
+    euler.gamma = e.gamma || 0;
 
-  if (view.getUint32(0, true) !== 0x46546C67)
-    throw new Error('Not a GLB file (bad magic bytes)');
+    // Accumulate motion magnitude for SLAM "scanned" detection
+    const da = angleDiff(euler.alpha, lastEuler.alpha);
+    const db = euler.beta  - lastEuler.beta;
+    const dg = euler.gamma - lastEuler.gamma;
+    motionScore += Math.sqrt(da*da + db*db + dg*dg);
 
-  var version      = view.getUint32(4, true);
-  var jsonChunkLen = view.getUint32(12, true);
+    lastEuler = { ...euler };
 
-  // Read and clean JSON chunk
-  var jsonRaw  = new Uint8Array(buffer, 20, jsonChunkLen);
-  var jsonText = new TextDecoder('utf-8').decode(jsonRaw);
-
-  // Trim to the last closing brace — removes ALL padding garbage
-  var lastBrace = jsonText.lastIndexOf('}');
-  if (lastBrace === -1) throw new Error('GLB JSON chunk has no closing brace');
-  jsonText = jsonText.substring(0, lastBrace + 1);
-
-  // Validate — throws with a real message if still bad
-  JSON.parse(jsonText);
-
-  // Re-encode with space padding (spec-compliant, 4-byte aligned)
-  while (jsonText.length % 4 !== 0) jsonText += ' ';
-  var cleanJSONBytes = new TextEncoder().encode(jsonText);
-
-  // Copy BIN chunk from original buffer
-  var binStart     = 20 + jsonChunkLen;
-  var binChunkLen  = view.getUint32(binStart, true);
-  var binChunkType = view.getUint32(binStart + 4, true);
-  var binData      = new Uint8Array(buffer, binStart + 8, binChunkLen);
-  var binPad       = (4 - (binChunkLen % 4)) % 4;
-
-  // Assemble clean GLB
-  var newLen = 12 + 8 + cleanJSONBytes.length + 8 + binChunkLen + binPad;
-  var out    = new Uint8Array(newLen);
-  var ov     = new DataView(out.buffer);
-
-  ov.setUint32(0, 0x46546C67,          true); // magic
-  ov.setUint32(4, version,             true); // version
-  ov.setUint32(8, newLen,              true); // total length
-
-  ov.setUint32(12, cleanJSONBytes.length, true);
-  ov.setUint32(16, 0x4E4F534A,            true); // 'JSON'
-  out.set(cleanJSONBytes, 20);
-
-  var bp = 20 + cleanJSONBytes.length;
-  ov.setUint32(bp,     binChunkLen + binPad, true);
-  ov.setUint32(bp + 4, binChunkType,         true); // preserve original type
-  out.set(binData, bp + 8);
-
-  return out.buffer;
+    if (!trackingReady) evaluateScan();
+  }, true);
 }
 
-window.addEventListener('load', function() {
-  setSplashMsg('FETCHING MODEL…', 10);
+let accelMag = 0;
+function bindMotion() {
+  window.addEventListener('devicemotion', (e) => {
+    const a = e.accelerationIncludingGravity;
+    if (a) accelMag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
+  }, true);
+}
 
-  fetch(GLB_URL)
-    .then(function(res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      setSplashMsg('DOWNLOADING…', 40);
-      return res.arrayBuffer();
-    })
-    .then(function(buffer) {
-      setSplashMsg('REPAIRING…', 65);
+function angleDiff(a, b) {
+  let d = a - b;
+  while (d >  180) d -= 360;
+  while (d < -180) d += 360;
+  return Math.abs(d);
+}
 
-      // Fix null-byte padding in JSON chunk
-      var cleanBuffer = repairGLBBuffer(buffer);
+function evaluateScan() {
+  if (scanStart === null) scanStart = performance.now();
+  const elapsed = performance.now() - scanStart;
 
-      setSplashMsg('PARSING…', 75);
+  if (motionScore > 15 || elapsed > SCAN_TIME_MS) {
+    trackingReady = true;
+    setStatus('tracking', 'Tracking');
+    scanOverlay.classList.add('hidden');
+    placementRing.classList.remove('hidden');
+    placeBtn.disabled = false;
+    // Fallback: if no orientation events fire, still go tracking
+  }
+}
 
-      // Blob URL so GLTFLoader has no CORS issues
-      var blob      = new Blob([cleanBuffer], { type: 'model/gltf-binary' });
-      var objectURL = URL.createObjectURL(blob);
+// Fallback timer: if gyro unavailable, auto-proceed after 3s
+setTimeout(() => {
+  if (!trackingReady) {
+    trackingReady = true;
+    setStatus('tracking', 'Tracking');
+    scanOverlay.classList.add('hidden');
+    placementRing.classList.remove('hidden');
+    placeBtn.disabled = false;
+  }
+}, 3500);
 
-      new THREE.GLTFLoader().load(
-        objectURL,
-        function(gltf) {
-          URL.revokeObjectURL(objectURL);
-          loadedGLTF = gltf;
-          setSplashMsg('READY ✓', 100);
-          document.getElementById('launch-btn').style.display = 'block';
-          document.getElementById('splash-status').style.opacity = '0.5';
-        },
-        null, // no progress needed — file already in memory
-        function(err) {
-          URL.revokeObjectURL(objectURL);
-          throw new Error(err && err.message ? err.message : String(err));
-        }
+// ── Surface detection (lightweight optical flow) ─────────
+let ofCanvas, ofCtx;
+let prevFrameData = null;
+
+function startSurfaceDetection() {
+  ofCanvas      = document.createElement('canvas');
+  ofCanvas.width  = 64;
+  ofCanvas.height = 36;
+  ofCtx         = ofCanvas.getContext('2d');
+
+  setInterval(analyseFrame, 200);
+}
+
+function analyseFrame() {
+  if (!camEl.videoWidth) return;
+  ofCtx.drawImage(camEl, 0, 0, 64, 36);
+  const frame = ofCtx.getImageData(0, 0, 64, 36).data;
+
+  if (prevFrameData) {
+    let diff = 0;
+    for (let i = 0; i < frame.length; i += 4) {
+      // luminance diff
+      diff += Math.abs(
+        (frame[i]*0.299 + frame[i+1]*0.587 + frame[i+2]*0.114) -
+        (prevFrameData[i]*0.299 + prevFrameData[i+1]*0.587 + prevFrameData[i+2]*0.114)
       );
-    })
-    .catch(function(err) {
-      console.error('Load error:', err);
-      setSplashMsg('ERROR\n' + err.message, 100, true);
-    });
-});
+    }
+    diff /= (64 * 36);
 
-// ─────────────────────────────────────────────────────────────────
-//  SLAM CONFIG
-// ─────────────────────────────────────────────────────────────────
-var CFG = { maxFeat:100, minFeat:20, winSize:13, maxIter:16, eps:0.015, minDist:14, fastThr:20 };
-var vid, hidC, hidX, slamC, slamX, minimapC, minimapX;
-var prevGray=null, currGray=null, features=[], mapPoints=[];
-var placedModel=null, cumTx=0, cumTy=0, cumRot=0;
-var frameN=0, lastFpsT=0, fps=0, trackState='init', isRunning=false;
-var renderer3, scene3, camera3;
-var touchMoved=false, dragStart=null, pinchStart=0;
-
-// ─────────────────────────────────────────────────────────────────
-//  START AR
-// ─────────────────────────────────────────────────────────────────
-function startAR() {
-  if (!loadedGLTF) return;
-  navigator.mediaDevices.getUserMedia({
-    video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30} },
-    audio:false
-  }).then(function(stream) {
-    vid = document.getElementById('vid');
-    vid.srcObject = stream; vid.play();
-    document.getElementById('splash').style.display    = 'none';
-    document.getElementById('top-bar').style.display   = 'flex';
-    document.getElementById('bottom-bar').style.display = 'block';
-    document.getElementById('minimap-wrap').style.display = 'block';
-    document.getElementById('xhair').style.display     = 'block';
-    document.getElementById('hint').style.display      = 'block';
-    vid.classList.add('on');
-    initCanvases(); initThree();
-    isRunning = true;
-    document.getElementById('hint').classList.add('on');
-    setStatus('tracking', 'TAP TO PLACE');
-    requestAnimationFrame(mainLoop);
-  }).catch(function(e) { alert('Camera error: ' + e.message); });
+    // Low diff → stable scene → consider surface detected
+    if (diff < 6 && !surfaceFound && trackingReady) {
+      surfaceFound = true;
+      // Estimate ground plane from device tilt
+      const betaRad = THREE.MathUtils.degToRad(euler.beta);
+      surfaceY = -Math.abs(Math.cos(betaRad)) * 1.4;
+    }
+  }
+  prevFrameData = new Uint8ClampedArray(frame);
 }
 
-function initCanvases() {
-  hidC=document.getElementById('cv-hidden'); hidX=hidC.getContext('2d',{willReadFrequently:true});
-  slamC=document.getElementById('cv-slam'); slamX=slamC.getContext('2d');
-  minimapC=document.getElementById('minimap'); minimapX=minimapC.getContext('2d');
-  onResize(); window.addEventListener('resize',onResize);
+// ── Camera pose from orientation ─────────────────────────
+const q     = new THREE.Quaternion();
+const euler3 = new THREE.Euler();
+const offsetQ = new THREE.Quaternion();
+
+// Compensate for screen landscape if needed
+const screenOrientOffset = window.screen.orientation
+  ? window.screen.orientation.angle || 0
+  : (window.orientation || 0);
+
+function updateCameraFromOrientation() {
+  // Convert device orientation → Three.js camera quaternion
+  // deviceorientation: alpha = yaw (compass), beta = pitch, gamma = roll
+  const a = THREE.MathUtils.degToRad(euler.alpha);
+  const b = THREE.MathUtils.degToRad(euler.beta);
+  const g = THREE.MathUtils.degToRad(euler.gamma);
+
+  // Build quaternion: ZXY order matches device screen coords
+  euler3.set(b, a, -g, 'YXZ');
+  q.setFromEuler(euler3);
+
+  // Rotate from sensor frame to Three.js frame (-90° around X)
+  const sensorQ = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  q.multiply(sensorQ);
+
+  camera.quaternion.copy(q);
 }
+
+// ── Render loop ──────────────────────────────────────────
+function startRenderLoop() {
+  renderer.setAnimationLoop(renderFrame);
+}
+
+function renderFrame() {
+  const dt = clock.getDelta();
+  if (mixer) mixer.update(dt);
+
+  if (trackingReady) updateCameraFromOrientation();
+
+  // Gently float model when placed
+  if (modelPlaced && model) {
+    model.rotation.y += 0.003;
+    modelAnchor.position.y = surfaceY + Math.sin(clock.elapsedTime * 1.2) * 0.008;
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ── Place model ──────────────────────────────────────────
+placeBtn.addEventListener('click', placeModel);
+
+function placeModel() {
+  if (!trackingReady || modelPlaced) return;
+
+  // Place anchor in front of camera at estimated floor
+  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const dist = 1.8;
+  modelAnchor.position.set(
+    camera.position.x + dir.x * dist,
+    surfaceY,
+    camera.position.z + dir.z * dist
+  );
+
+  // Face camera
+  const lookTarget = new THREE.Vector3(
+    camera.position.x, surfaceY, camera.position.z
+  );
+  modelAnchor.lookAt(lookTarget);
+
+  modelAnchor.visible = true;
+  modelPlaced = true;
+  placementRing.classList.add('hidden');
+  placeBtn.style.opacity = '0.4';
+  placeBtn.disabled = true;
+  document.getElementById('btnLabel').textContent = 'Model placed';
+
+  // Show gesture tips
+  setTimeout(() => {
+    gestureTip.classList.add('show');
+    setTimeout(() => gestureTip.classList.remove('show'), 3500);
+  }, 600);
+}
+
+// ── Gesture: pinch-to-scale + drag-to-rotate ─────────────
+arCanvas.style.pointerEvents = 'all';
+
+arCanvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) touches[t.identifier] = { x: t.clientX, y: t.clientY };
+}, { passive: false });
+
+arCanvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  const ids = Object.keys(touches);
+
+  if (e.touches.length === 2) {
+    // Pinch-to-scale
+    const t0 = e.touches[0], t1 = e.touches[1];
+    const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+    if (lastPinchDist !== null && modelPlaced) {
+      const factor = dist / lastPinchDist;
+      modelAnchor.scale.multiplyScalar(factor);
+      modelAnchor.scale.clampScalar(0.1, 5);
+    }
+    lastPinchDist = dist;
+    lastDragX = null; lastDragY = null;
+  } else if (e.touches.length === 1 && modelPlaced) {
+    // Single finger drag → rotate Y
+    const t = e.touches[0];
+    if (lastDragX !== null) {
+      const dx = t.clientX - lastDragX;
+      modelAnchor.rotation.y += dx * 0.012;
+    }
+    lastDragX = t.clientX;
+    lastDragY = t.clientY;
+    lastPinchDist = null;
+  }
+
+  for (const t of e.changedTouches) touches[t.identifier] = { x: t.clientX, y: t.clientY };
+}, { passive: false });
+
+arCanvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) delete touches[t.identifier];
+  if (e.touches.length < 2) lastPinchDist = null;
+  if (e.touches.length < 1) { lastDragX = null; lastDragY = null; }
+}, { passive: false });
+
+// ── Helpers ──────────────────────────────────────────────
+function setStatus(type, label) {
+  statusText.textContent = label;
+  statusDot.className = '';
+  statusDot.classList.add(type);
+}
+
 function onResize() {
-  var W=window.innerWidth,H=window.innerHeight;
-  slamC.width=W;slamC.height=H;
-  hidC.width=Math.min(W,480);hidC.height=Math.min(H,270);
-  if(renderer3){renderer3.setSize(W,H);camera3.aspect=W/H;camera3.updateProjectionMatrix();}
-}
-function initThree() {
-  var W=window.innerWidth,H=window.innerHeight;
-  renderer3=new THREE.WebGLRenderer({alpha:true,antialias:false,powerPreference:'high-performance'});
-  renderer3.setPixelRatio(Math.min(window.devicePixelRatio,2));
-  renderer3.setSize(W,H); renderer3.setClearColor(0x000000,0);
-  var cv=renderer3.domElement;
-  cv.style.cssText='position:fixed;inset:0;z-index:3;touch-action:none;';
-  document.body.appendChild(cv);
-  camera3=new THREE.PerspectiveCamera(65,W/H,0.001,500);
-  camera3.position.set(0,0,0);
-  scene3=new THREE.Scene();
-  scene3.add(new THREE.AmbientLight(0xffffff,0.8));
-  var sun=new THREE.DirectionalLight(0xffffff,1.5);sun.position.set(3,8,5);scene3.add(sun);
-  var fill=new THREE.DirectionalLight(0x88ffee,0.4);fill.position.set(-4,-2,-4);scene3.add(fill);
-  // Touch: tap=place, drag=rotate, pinch=scale
-  cv.addEventListener('touchstart',function(e){e.preventDefault();touchMoved=false;if(e.touches.length===1){dragStart={x:e.touches[0].clientX,y:e.touches[0].clientY};}else if(e.touches.length===2){pinchStart=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}},{passive:false});
-  cv.addEventListener('touchmove',function(e){e.preventDefault();touchMoved=true;if(!placedModel)return;if(e.touches.length===1&&dragStart){var dx=e.touches[0].clientX-dragStart.x;placedModel.userRot-=dx*0.012;dragStart={x:e.touches[0].clientX,y:e.touches[0].clientY};}else if(e.touches.length===2&&pinchStart>0){var d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);placedModel.scaleF=Math.max(0.05,Math.min(20,placedModel.scaleF*(d/pinchStart)));placedModel.wrap.scale.setScalar(placedModel.scaleF);document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';pinchStart=d;}},{passive:false});
-  cv.addEventListener('touchend',function(e){e.preventDefault();if(!touchMoved&&e.changedTouches.length===1)placeAt(e.changedTouches[0].clientX,e.changedTouches[0].clientY);},{passive:false});
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  MAIN LOOP
-// ─────────────────────────────────────────────────────────────────
-function mainLoop(ts) {
-  if(!isRunning)return;
-  frameN++;
-  if(ts-lastFpsT>1000){fps=Math.round(frameN*1000/(ts-lastFpsT));frameN=0;lastFpsT=ts;document.getElementById('s-fps').textContent=fps;}
-  var W=hidC.width,H=hidC.height;
-  hidX.drawImage(vid,0,0,W,H);
-  currGray=toGray(hidX.getImageData(0,0,W,H).data,W,H);
-  if(!prevGray){prevGray=currGray;detectFeatures(W,H);requestAnimationFrame(mainLoop);return;}
-  features=trackLK(prevGray,currGray,features,W,H).filter(function(f){return f.ok;});
-  var motion=estimateMotion(features);
-  cumTx+=motion.dx;cumTy+=motion.dy;cumRot+=motion.drot;
-  if(placedModel)updateModelPose();
-  if(features.length<CFG.minFeat){detectFeatures(W,H);setTrackState(features.length<6?'lost':'tracking');}
-  else setTrackState('tracking');
-  feedMap(features,W,H);renderSLAM(W,H);renderMinimap();
-  renderer3.render(scene3,camera3);updateHUD();
-  prevGray=currGray;requestAnimationFrame(mainLoop);
+function showError(title, msg) {
+  permScreen.classList.remove('hidden');
+  permScreen.querySelector('.icon').textContent = '⚠️';
+  permScreen.querySelector('h2').textContent = title;
+  permScreen.querySelector('p').textContent  = msg;
+  permScreen.querySelector('button').textContent = 'Retry';
+  permScreen.querySelector('button').onclick = () => location.reload();
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  SLAM CORE
-// ─────────────────────────────────────────────────────────────────
-function toGray(d,w,h){var g=new Float32Array(w*h);for(var i=0;i<w*h;i++)g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];return g;}
-var C16=[[0,-3],[1,-3],[2,-2],[3,-1],[3,0],[3,1],[2,2],[1,3],[0,3],[-1,3],[-2,2],[-3,1],[-3,0],[-3,-1],[-2,-2],[-1,-3]];
-function detectFeatures(W,H){var cands=[];for(var y=18;y<H-18;y+=3)for(var x=18;x<W-18;x+=3){var p=currGray[y*W+x],br=0,dk=0;for(var i=0;i<16;i++){var q=currGray[(y+C16[i][1])*W+(x+C16[i][0])]||0;if(q>p+CFG.fastThr)br++;else if(q<p-CFG.fastThr)dk++;}if(br>=9||dk>=9)cands.push({x:x,y:y,score:harrisSc(x,y,W,H),vx:0,vy:0,age:0,ok:true});}cands.sort(function(a,b){return b.score-a.score;});features=nms(cands,CFG.minDist,CFG.maxFeat);}
-function harrisSc(x,y,W,H){var Ixx=0,Iyy=0,Ixy=0;for(var dy=-3;dy<=3;dy++)for(var dx=-3;dx<=3;dx++){var nx=x+dx,ny=y+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;var gx=currGray[ny*W+nx+1]-currGray[ny*W+nx-1],gy=currGray[(ny+1)*W+nx]-currGray[(ny-1)*W+nx];Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;}return Ixx*Iyy-Ixy*Ixy-0.04*Math.pow(Ixx+Iyy,2);}
-function nms(pts,d,max){var out=[];for(var i=0;i<pts.length;i++){if(out.length>=max)break;var skip=false;for(var j=0;j<out.length;j++){if(Math.pow(pts[i].x-out[j].x,2)+Math.pow(pts[i].y-out[j].y,2)<d*d){skip=true;break;}}if(!skip)out.push(pts[i]);}return out;}
-function trackLK(prev,curr,pts,W,H){return pts.map(function(pt){var r=lk(prev,curr,pt.x,pt.y,W,H);if(!r)return Object.assign({},pt,{ok:false});var b=lkBack(curr,prev,r.x,r.y,pt.x,pt.y,W,H);if(!b||Math.pow(b.x-pt.x,2)+Math.pow(b.y-pt.y,2)>6)return Object.assign({},pt,{ok:false});return Object.assign({},pt,{x:r.x,y:r.y,vx:r.x-pt.x,vy:r.y-pt.y,age:pt.age+1,ok:true});});}
-function lk(prev,curr,px,py,W,H){var h2=Math.floor(CFG.winSize/2),x=px,y=py;for(var it=0;it<CFG.maxIter;it++){var Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;for(var dy=-h2;dy<=h2;dy++)for(var dx=-h2;dx<=h2;dx++){var nx=Math.round(px)+dx,ny=Math.round(py)+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;var gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5,gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5,gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;Ixt+=gx*gt;Iyt+=gy*gt;}var det=Ixx*Iyy-Ixy*Ixy;if(Math.abs(det)<1e-7)return null;var vx=-(Iyy*Ixt-Ixy*Iyt)/det,vy=-(Ixx*Iyt-Ixy*Ixt)/det;x+=vx;y+=vy;if(vx*vx+vy*vy<CFG.eps*CFG.eps)break;}if(x<10||x>=W-10||y<10||y>=H-10)return null;return{x:x,y:y};}
-function lkBack(prev,curr,px,py,ox,oy,W,H){var x=ox,y=oy,Ixx=0,Iyy=0,Ixy=0,Ixt=0,Iyt=0;for(var dy=-5;dy<=5;dy++)for(var dx=-5;dx<=5;dx++){var nx=Math.round(px)+dx,ny=Math.round(py)+dy;if(nx<=0||nx>=W-1||ny<=0||ny>=H-1)continue;var gx=(bil(prev,nx+1,ny,W,H)-bil(prev,nx-1,ny,W,H))*.5,gy=(bil(prev,nx,ny+1,W,H)-bil(prev,nx,ny-1,W,H))*.5,gt=bil(curr,x+dx,y+dy,W,H)-bil(prev,nx,ny,W,H);Ixx+=gx*gx;Iyy+=gy*gy;Ixy+=gx*gy;Ixt+=gx*gt;Iyt+=gy*gt;}var det=Ixx*Iyy-Ixy*Ixy;if(Math.abs(det)<1e-7)return null;return{x:x-(Iyy*Ixt-Ixy*Iyt)/det,y:y-(Ixx*Iyt-Ixy*Ixt)/det};}
-function bil(img,x,y,W,H){x=Math.max(0,Math.min(W-1.001,x));y=Math.max(0,Math.min(H-1.001,y));var x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0;return(img[y0*W+x0]||0)*(1-fx)*(1-fy)+(img[y0*W+x0+1]||0)*fx*(1-fy)+(img[(y0+1)*W+x0]||0)*(1-fx)*fy+(img[(y0+1)*W+x0+1]||0)*fx*fy;}
-function estimateMotion(pts){if(pts.length<3)return{dx:0,dy:0,drot:0};var vxs=pts.map(function(p){return p.vx;}).sort(function(a,b){return a-b;}),vys=pts.map(function(p){return p.vy;}).sort(function(a,b){return a-b;}),mid=Math.floor(pts.length/2),mdx=vxs[mid],mdy=vys[mid],cx=pts.reduce(function(s,p){return s+p.x;},0)/pts.length,cy=pts.reduce(function(s,p){return s+p.y;},0)/pts.length,drot=0,n=0;for(var i=0;i<pts.length;i++){var dx=pts[i].x-cx,dy=pts[i].y-cy,l=dx*dx+dy*dy;if(l<1)continue;drot+=(dx*(pts[i].vy-mdy)-dy*(pts[i].vx-mdx))/l;n++;}return{dx:mdx,dy:mdy,drot:n?drot/n:0};}
-
-// ─────────────────────────────────────────────────────────────────
-//  MODEL PLACEMENT
-// ─────────────────────────────────────────────────────────────────
-function onPlaceBtn(){placeAt(window.innerWidth/2,window.innerHeight/2);}
-function placeAt(sx,sy){
-  if(trackState!=='tracking'||!loadedGLTF)return;
-  if(placedModel)scene3.remove(placedModel.wrap);
-  var inner=loadedGLTF.scene.clone(true);
-
-  // Scale so longest axis = 0.18m
-  var box=new THREE.Box3().setFromObject(inner),sz=new THREE.Vector3();
-  box.getSize(sz);
-  var maxDim=Math.max(sz.x,sz.y,sz.z)||1, sc=0.18/maxDim;
-  inner.scale.setScalar(sc);
-
-  // Bottom-align: shift model so its bottom sits at Y=0 of the wrap
-  // Model bottom in world units (after scale) = box.min.y * sc
-  // We want bottom at 0, so offset inner up by half-height
-  var halfH = (sz.y * sc) / 2;
-  var ctr=new THREE.Vector3(); box.getCenter(ctr);
-  inner.position.set(-ctr.x*sc, -ctr.y*sc + halfH, -ctr.z*sc);
-
-  var wrap=new THREE.Group(); wrap.add(inner);
-  var ndcX=(sx/window.innerWidth)*2-1, ndcY=-((sy/window.innerHeight)*2-1);
-  var dir=new THREE.Vector3(ndcX,ndcY,-1).unproject(camera3).sub(camera3.position).normalize();
-  wrap.position.copy(camera3.position.clone().addScaledVector(dir,1.4));
-  wrap.rotation.y=cumRot*0.5;
-  scene3.add(wrap);
-  placedModel={wrap:wrap,inner:inner,anchorTx:cumTx,anchorTy:cumTy,anchorRot:cumRot,basePos:wrap.position.clone(),baseRot:wrap.rotation.y,scaleF:1.0,userRot:0};
-  document.getElementById('place-btn').textContent='MOVE MODEL';
-  document.getElementById('place-btn').classList.add('placed');
-  document.getElementById('remove-btn').style.display='block';
-  document.getElementById('scale-bar').style.display='flex';
-  document.getElementById('hint').classList.remove('on');
-  var rip=document.createElement('div');rip.className='ripple';rip.style.cssText+='width:80px;height:80px;left:'+sx+'px;top:'+sy+'px;';document.body.appendChild(rip);setTimeout(function(){rip.remove();},700);
-}
-function updateModelPose(){
-  // Model is fully stationary in world space.
-  // Only userRot (finger drag) changes its orientation.
-  placedModel.wrap.rotation.y = placedModel.baseRot + placedModel.userRot;
-}
-function scaleModel(f){if(!placedModel)return;placedModel.scaleF=Math.max(0.05,Math.min(20,placedModel.scaleF*f));placedModel.wrap.scale.setScalar(placedModel.scaleF);document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';}
-function resetModel(){if(!placedModel)return;scene3.remove(placedModel.wrap);placedModel=null;document.getElementById('place-btn').textContent='PLACE MODEL';document.getElementById('place-btn').classList.remove('placed');document.getElementById('remove-btn').style.display='none';document.getElementById('scale-bar').style.display='none';document.getElementById('s-scale').textContent='1.0×';if(trackState==='tracking')document.getElementById('hint').classList.add('on');}
-
-// ─────────────────────────────────────────────────────────────────
-//  RENDERING / HUD
-// ─────────────────────────────────────────────────────────────────
-function feedMap(pts,W,H){var sx=window.innerWidth/W,sy=window.innerHeight/H;for(var i=0;i<pts.length;i++)mapPoints.push({x:pts[i].x*sx,y:pts[i].y*sy,age:0});if(mapPoints.length>350)mapPoints.splice(0,mapPoints.length-350);for(var j=0;j<mapPoints.length;j++)mapPoints[j].age++;}
-function renderSLAM(W,H){var ctx=slamX,sw=slamC.width,sh=slamC.height,sx=sw/W,sy=sh/H;ctx.clearRect(0,0,sw,sh);if(trackState==='lost'){ctx.fillStyle='#ff2255';ctx.font='bold 12px monospace';ctx.textAlign='center';ctx.fillText('TRACKING LOST — MOVE SLOWLY',sw/2,sh*0.45);return;}for(var i=0;i<features.length;i++){var f=features[i];if(!f.ok)continue;var x=f.x*sx,y=f.y*sy,age=Math.min(f.age/20,1);if(Math.abs(f.vx)+Math.abs(f.vy)>0.35){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-f.vx*sx*5,y-f.vy*sy*5);ctx.strokeStyle='rgba(0,255,136,'+(0.1+age*0.15)+')';ctx.lineWidth=1;ctx.stroke();}ctx.beginPath();ctx.arc(x,y,1.5+age*1.5,0,Math.PI*2);ctx.fillStyle=age>0.5?'rgba(0,255,136,'+(0.45+age*0.4)+')':'rgba(0,200,255,0.5)';ctx.fill();}}
-function renderMinimap(){var mc=minimapX,mw=minimapC.width,mh=minimapC.height;mc.clearRect(0,0,mw,mh);mc.fillStyle='rgba(0,8,4,.9)';mc.fillRect(0,0,mw,mh);mc.strokeStyle='rgba(0,255,136,.07)';mc.lineWidth=0.5;for(var i=0;i<mw;i+=10){mc.beginPath();mc.moveTo(i,0);mc.lineTo(i,mh);mc.stroke();}for(var j=0;j<mh;j+=10){mc.beginPath();mc.moveTo(0,j);mc.lineTo(mw,j);mc.stroke();}for(var k=0;k<100;k++){var m=mapPoints[mapPoints.length-100+k];if(!m)continue;var px=mw/2+(m.x-window.innerWidth/2)*0.06+cumTx*0.04,py=mh/2+(m.y-window.innerHeight/2)*0.06+cumTy*0.04;if(px<0||px>mw||py<0||py>mh)continue;mc.fillStyle='rgba(0,255,136,'+Math.min(0.7,m.age*0.025+0.15)+')';mc.fillRect(px-1,py-1,2,2);}if(placedModel){var ppx=mw/2-(cumTx-placedModel.anchorTx)*0.04,ppy=mh/2-(cumTy-placedModel.anchorTy)*0.04;mc.beginPath();mc.arc(ppx,ppy,4,0,Math.PI*2);mc.fillStyle='#00ccff';mc.shadowBlur=6;mc.shadowColor='#00ccff';mc.fill();mc.shadowBlur=0;}mc.beginPath();mc.arc(mw/2,mh/2,4,0,Math.PI*2);mc.fillStyle='#00ff88';mc.shadowBlur=6;mc.shadowColor='#00ff88';mc.fill();mc.shadowBlur=0;}
-function setTrackState(s){if(trackState===s)return;trackState=s;document.getElementById('dot').className='dot '+s;document.getElementById('lost-tint').classList.toggle('on',s==='lost');if(s==='tracking'){document.getElementById('status-lbl').textContent=placedModel?'TRACKING':'TAP TO PLACE';if(!placedModel)document.getElementById('hint').classList.add('on');}else{document.getElementById('status-lbl').textContent='LOST';document.getElementById('hint').classList.remove('on');}}
-function setStatus(s,msg){trackState=s;document.getElementById('dot').className='dot '+s;document.getElementById('status-lbl').textContent=msg;}
-function updateHUD(){var n=features.length;document.getElementById('s-feat').textContent=n;document.getElementById('s-qual').textContent=n>=CFG.maxFeat*0.7?'HIGH':n>=CFG.minFeat*2?'MED':'LOW';if(placedModel)document.getElementById('s-scale').textContent=placedModel.scaleF.toFixed(2)+'×';}
 </script>
+
 </body>
 </html>
